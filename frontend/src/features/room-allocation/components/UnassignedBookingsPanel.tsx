@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { roomAllocationApi } from '@/lib/api/room-allocation'
@@ -438,14 +438,28 @@ export default function UnassignedBookingsPanel({
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Available rooms: </span>
-                      <span className="font-medium">
-                        {booking.available_rooms.length > 0 
-                          ? booking.available_rooms.join(', ')
-                          : 'No rooms available'
-                        }
-                      </span>
+                    <div className="text-sm space-y-1">
+                      <div>
+                        <span className="text-muted-foreground">Guests: </span>
+                        <span className="font-medium">
+                          {booking.adults || 0} Adults
+                          {booking.children > 0 && `, ${booking.children} Children`}
+                          {booking.infants > 0 && `, ${booking.infants} Infants`}
+                          {booking.extra_persons > 0 && ` (+${booking.extra_persons} extra)`}
+                        </span>
+                      </div>
+                      {booking.extra_bed && (
+                        <div>
+                          <span className="text-muted-foreground">Extra bed: </span>
+                          <span className="font-medium">Required</span>
+                        </div>
+                      )}
+                      {booking.special_requests && (
+                        <div>
+                          <span className="text-muted-foreground">Special requests: </span>
+                          <span className="font-medium text-xs">{booking.special_requests}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="text-sm">
                       <span className="text-muted-foreground">Amount: </span>
@@ -493,6 +507,9 @@ export default function UnassignedBookingsPanel({
             <DialogTitle>
               Assign Room - {selectedBooking?.guest_name}
             </DialogTitle>
+            <DialogDescription>
+              Select an available room for the guest's stay period and complete the assignment.
+            </DialogDescription>
           </DialogHeader>
           
           {selectedBooking && (

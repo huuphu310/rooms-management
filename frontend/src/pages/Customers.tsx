@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
-import { Plus, Search, User, Star, Phone, Mail } from 'lucide-react';
+import { Plus, Search, User, Star, Phone, Mail, Eye, Edit } from 'lucide-react';
+import { CustomerForm } from '@/components/customers/CustomerForm';
+import { CustomerView } from '@/components/customers/CustomerView';
 
 interface Customer {
   id: string;
@@ -21,9 +24,14 @@ interface Customer {
 }
 
 export default function Customers() {
+  const { t, formatCurrency: formatCurrencyLocale } = useLanguage();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   useEffect(() => {
     fetchCustomers();
@@ -69,25 +77,25 @@ export default function Customers() {
   };
 
   if (loading) {
-    return <div className="p-6">Loading customers...</div>;
+    return <div className="p-6">{t('common.loading')}...</div>;
   }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Customers</h2>
-          <p className="text-muted-foreground">Manage customer profiles and loyalty</p>
+          <h2 className="text-3xl font-bold tracking-tight">{t('customers.title')}</h2>
+          <p className="text-muted-foreground">{t('customers.subtitle')}</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" /> Add Customer
+        <Button onClick={() => setShowAddDialog(true)}>
+          <Plus className="mr-2 h-4 w-4" /> {t('customers.newCustomer')}
         </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('customers.totalCustomers')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{customers.length}</div>
@@ -95,7 +103,7 @@ export default function Customers() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">VIP Customers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('customers.vip')} {t('customers.title')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -105,7 +113,7 @@ export default function Customers() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('customers.active')} {t('customers.title')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -115,7 +123,7 @@ export default function Customers() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('reports.totalRevenue')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -128,7 +136,7 @@ export default function Customers() {
       <div className="flex items-center space-x-2">
         <Search className="h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search customers..."
+          placeholder={t('customers.searchCustomers')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="max-w-sm"
@@ -137,19 +145,19 @@ export default function Customers() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Customer List</CardTitle>
+          <CardTitle>{t('customers.customerList')}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Bookings</TableHead>
-                <TableHead>Total Spent</TableHead>
-                <TableHead>Loyalty Points</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>{t('common.customer')}</TableHead>
+                <TableHead>{t('common.contact')}</TableHead>
+                <TableHead>{t('customers.totalBookings')}</TableHead>
+                <TableHead>{t('customers.totalSpent')}</TableHead>
+                <TableHead>{t('customers.loyaltyPoints')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -161,7 +169,7 @@ export default function Customers() {
                       <div>
                         <div className="font-medium">{customer.full_name}</div>
                         <div className="text-sm text-muted-foreground">
-                          {customer.nationality || 'N/A'}
+                          {customer.nationality || t('common.notAvailable')}
                         </div>
                       </div>
                     </div>
@@ -188,13 +196,33 @@ export default function Customers() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={getStatusColor(customer.status) as any}>
-                      {customer.status}
+                      {t(`customers.${customer.status}`)}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm">View</Button>
-                      <Button variant="outline" size="sm">Edit</Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          setSelectedCustomer(customer);
+                          setShowViewDialog(true);
+                        }}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        {t('common.view')}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          setSelectedCustomer(customer);
+                          setShowEditDialog(true);
+                        }}
+                      >
+                        <Edit className="h-4 w-4 mr-1" />
+                        {t('common.edit')}
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -203,6 +231,40 @@ export default function Customers() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Add Customer Dialog */}
+      <CustomerForm
+        open={showAddDialog}
+        onClose={() => setShowAddDialog(false)}
+        onSuccess={fetchCustomers}
+        mode="add"
+      />
+
+      {/* Edit Customer Dialog */}
+      {selectedCustomer && (
+        <CustomerForm
+          open={showEditDialog}
+          onClose={() => {
+            setShowEditDialog(false);
+            setSelectedCustomer(null);
+          }}
+          customer={selectedCustomer}
+          onSuccess={fetchCustomers}
+          mode="edit"
+        />
+      )}
+
+      {/* View Customer Dialog */}
+      {selectedCustomer && (
+        <CustomerView
+          open={showViewDialog}
+          onClose={() => {
+            setShowViewDialog(false);
+            setSelectedCustomer(null);
+          }}
+          customer={selectedCustomer}
+        />
+      )}
     </div>
   );
 }

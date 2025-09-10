@@ -1,10 +1,15 @@
 from datetime import date, datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
-from app.api.deps import get_supabase_service, require_permission
+from app.api.deps import (
+    require_permission,
+    get_current_active_user as get_current_user,
+    UserScopedDbDep,
+    AuthenticatedDbDep
+)
 from app.services.billing_service_enhanced import BillingServiceEnhanced
 from app.schemas.billing_enhanced import *
 from app.core.exceptions import (
@@ -16,12 +21,11 @@ from app.core.exceptions import (
 
 router = APIRouter()
 
-
 # Invoice Management Endpoints
 @router.post("/invoices/create-deposit", response_model=InvoiceResponse)
 async def create_deposit_invoice(
     deposit_data: CreateDepositInvoice,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -46,11 +50,10 @@ async def create_deposit_invoice(
             detail=str(e)
         )
 
-
 @router.post("/invoices/create-partial", response_model=InvoiceResponse)
 async def create_partial_invoice(
     partial_data: CreatePartialInvoice,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -70,10 +73,11 @@ async def create_partial_invoice(
             detail=str(e)
         )
 
-
 @router.get("/invoices", response_model=List[InvoiceResponse])
 async def get_invoices(
+    db: AuthenticatedDbDep,
     booking_id: UUID = None,
+    booking_code: str = None,
     customer_id: UUID = None,
     invoice_type: InvoiceType = None,
     status: InvoiceStatus = None,
@@ -84,7 +88,6 @@ async def get_invoices(
     limit: int = 20,
     sort_by: str = "created_at",
     order: str = "desc",
-    db = Depends(get_supabase_service),
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -97,6 +100,7 @@ async def get_invoices(
     
     search_params = InvoiceSearchParams(
         booking_id=booking_id,
+        booking_code=booking_code,
         customer_id=customer_id,
         invoice_type=invoice_type,
         status=status,
@@ -112,11 +116,10 @@ async def get_invoices(
     invoices = await service.get_invoices(search_params)
     return invoices
 
-
 @router.get("/invoices/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: UUID,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -136,12 +139,11 @@ async def get_invoice(
             detail=str(e)
         )
 
-
 @router.put("/invoices/{invoice_id}", response_model=InvoiceResponse)
 async def update_invoice(
     invoice_id: UUID,
     invoice_data: InvoiceUpdate,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "update"))
 ):
     """
@@ -163,12 +165,11 @@ async def update_invoice(
             detail=str(e)
         )
 
-
 # Payment Summary Endpoint
 @router.get("/bookings/{booking_id}/payment-summary", response_model=BookingPaymentSummary)
 async def get_booking_payment_summary(
     booking_id: UUID,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -188,13 +189,12 @@ async def get_booking_payment_summary(
             detail=str(e)
         )
 
-
 # Payment Processing Endpoints
 @router.post("/payments/process", response_model=List[PaymentResponse])
 async def process_payment(
     payment_data: ProcessPayment,
     background_tasks: BackgroundTasks,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -223,12 +223,11 @@ async def process_payment(
             detail=str(e)
         )
 
-
 @router.post("/payments/record-deposit", response_model=PaymentResponse)
 async def record_deposit_payment(
     deposit_data: RecordDepositPayment,
     background_tasks: BackgroundTasks,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -256,9 +255,56 @@ async def record_deposit_payment(
             detail=str(e)
         )
 
+@router.post("/payments/record", response_model=PaymentResponse)
+async def record_payment(
+    payment_data: RecordPayment,
+    db: AuthenticatedDbDep,
+    current_user: Optional[dict] = Depends(get_current_user)
+):
+    """
+    Record payment against an invoice.
+    
+    Creates payment record and updates invoice status based on payment amount.
+    """
+    service = BillingServiceEnhanced(db)
+    
+    try:
+        # Use a default user_id if no current_user (for development)
+        user_id = current_user["id"] if current_user else "00000000-0000-0000-0000-000000000000"
+        payment = await service.record_payment(payment_data, user_id)
+        return payment
+    except (NotFoundException, ValidationException) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+@router.post("/payments/record-direct", response_model=PaymentResponse)
+async def record_direct_payment(
+    payment_data: RecordDirectPayment,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(require_permission("billing", "create"))
+):
+    """
+    Record direct payment not tied to a specific invoice.
+    
+    Creates payment record that can be associated with a booking, customer,
+    or be completely standalone for miscellaneous payments.
+    """
+    service = BillingServiceEnhanced(db)
+    
+    try:
+        payment = await service.record_direct_payment(payment_data, current_user["id"])
+        return payment
+    except (NotFoundException, ValidationException) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @router.get("/payments", response_model=List[PaymentResponse])
 async def get_payments(
+    db: AuthenticatedDbDep,
     booking_id: UUID = None,
     invoice_id: UUID = None,
     payment_method: PaymentMethod = None,
@@ -271,7 +317,6 @@ async def get_payments(
     limit: int = 20,
     sort_by: str = "payment_date",
     order: str = "desc",
-    db = Depends(get_supabase_service),
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -300,12 +345,11 @@ async def get_payments(
     payments = await service.get_payments(search_params)
     return payments
 
-
 # QR Code Payment Endpoints
 @router.post("/payments/generate-qr", response_model=QRCodeResponse)
 async def generate_qr_code(
     qr_data: GenerateQRCode,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -325,11 +369,10 @@ async def generate_qr_code(
             detail=str(e)
         )
 
-
 @router.get("/payments/qr-status/{qr_payment_id}", response_model=QRStatusResponse)
 async def get_qr_payment_status(
     qr_payment_id: UUID,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -349,12 +392,11 @@ async def get_qr_payment_status(
             detail=str(e)
         )
 
-
 @router.post("/webhooks/seapay")
 async def seapay_webhook(
     webhook_data: Dict[str, Any],
     background_tasks: BackgroundTasks,
-    db = Depends(get_supabase_service)
+    db: AuthenticatedDbDep
 ):
     """
     SEAPay webhook endpoint for bank transfer notifications.
@@ -393,12 +435,11 @@ async def seapay_webhook(
             content={"status": "error", "message": str(e)}
         )
 
-
 # Payment Schedule Endpoints
 @router.post("/payment-schedules/create", response_model=List[PaymentScheduleResponse])
 async def create_payment_schedule(
     schedule_data: CreatePaymentSchedule,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "create"))
 ):
     """
@@ -418,11 +459,10 @@ async def create_payment_schedule(
             detail=str(e)
         )
 
-
 @router.get("/payment-schedules/{booking_id}", response_model=List[PaymentScheduleResponse])
 async def get_payment_schedules(
     booking_id: UUID,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -442,12 +482,11 @@ async def get_payment_schedules(
             detail=str(e)
         )
 
-
 @router.put("/payment-schedules/{schedule_id}", response_model=PaymentScheduleResponse)
 async def update_payment_schedule(
     schedule_id: UUID,
     schedule_data: PaymentScheduleUpdate,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "update"))
 ):
     """
@@ -463,14 +502,13 @@ async def update_payment_schedule(
         detail="Schedule update not yet implemented"
     )
 
-
 # Refund Endpoints
 @router.post("/payments/{payment_id}/refund", response_model=PaymentResponse)
 async def process_refund(
     payment_id: UUID,
     refund_data: ProcessRefund,
     background_tasks: BackgroundTasks,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "refund"))
 ):
     """
@@ -498,13 +536,12 @@ async def process_refund(
             detail=str(e)
         )
 
-
 # Reports and Analytics Endpoints
 @router.get("/reports/revenue", response_model=RevenueReport)
 async def get_revenue_report(
     date_from: date,
     date_to: date,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -524,10 +561,9 @@ async def get_revenue_report(
             detail=str(e)
         )
 
-
 @router.get("/dashboard", response_model=BillingDashboard)
 async def get_billing_dashboard(
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -560,12 +596,11 @@ async def get_billing_dashboard(
     
     return dashboard
 
-
 # Deposit Rules Management (Admin)
 @router.post("/deposit-rules", response_model=DepositRuleResponse)
 async def create_deposit_rule(
     rule_data: DepositRuleCreate,
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "admin"))
 ):
     """
@@ -580,10 +615,9 @@ async def create_deposit_rule(
         detail="Deposit rules management not yet implemented"
     )
 
-
 @router.get("/deposit-rules", response_model=List[DepositRuleResponse])
 async def get_deposit_rules(
-    db = Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("billing", "read"))
 ):
     """
@@ -594,31 +628,26 @@ async def get_deposit_rules(
     # Implementation would fetch deposit rules
     return []
 
-
 # Background Task Functions
 async def send_payment_receipt(booking_id: UUID, payments: List[PaymentResponse]):
     """Send payment receipt via email"""
     # Implementation would send email receipt
     print(f"Sending receipt for booking {booking_id}")
 
-
 async def send_deposit_confirmation(booking_id: UUID, payment: PaymentResponse):
     """Send deposit confirmation"""
     # Implementation would send confirmation
     print(f"Sending deposit confirmation for booking {booking_id}")
-
 
 async def send_payment_notification(webhook_data: Dict[str, Any]):
     """Send payment received notification"""
     # Implementation would send notification
     print(f"Payment received via webhook: {webhook_data['data']['transaction_id']}")
 
-
 async def process_gateway_refund(payment_id: UUID, refund: PaymentResponse):
     """Process refund via payment gateway"""
     # Implementation would call payment gateway API
     print(f"Processing gateway refund for payment {payment_id}")
-
 
 # Health Check Endpoint
 @router.get("/health")

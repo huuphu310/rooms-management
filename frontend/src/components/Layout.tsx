@@ -15,27 +15,40 @@ import {
   X,
   Layers,
   Grid3X3,
+  Shield,
+  Building2,
+  FileText,
+  Banknote,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { LanguageSwitcherEnhanced } from '@/components/LanguageSwitcherEnhanced';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { PermissionGuard } from '@/components/PermissionGuard';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: Home },
-  { name: 'Rooms', href: '/rooms', icon: Hotel },
-  { name: 'Room Types', href: '/room-types', icon: Layers },
-  { name: 'Room Allocation', href: '/room-allocation', icon: Grid3X3 },
-  { name: 'Bookings', href: '/bookings', icon: Calendar },
-  { name: 'Customers', href: '/customers', icon: Users },
-  { name: 'Inventory', href: '/inventory', icon: Package },
-  { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'POS', href: '/pos', icon: ShoppingCart },
-  { name: 'Reports', href: '/reports', icon: BarChart3 },
+const navigationItems = [
+  { key: 'dashboard', href: '/dashboard', icon: Home },
+  { key: 'rooms', href: '/rooms', icon: Hotel, permission: 'rooms.read' },
+  { key: 'roomTypes', href: '/room-types', icon: Layers, permission: 'rooms.read' },
+  { key: 'buildings', href: '/buildings', icon: Building2, permission: 'buildings.read' },
+  { key: 'roomAllocation', href: '/room-allocation', icon: Grid3X3, permission: 'room_allocation.read' },
+  { key: 'bookings', href: '/bookings', icon: Calendar, permission: 'bookings.read' },
+  { key: 'customers', href: '/customers', icon: Users, permission: 'customers.read' },
+  { key: 'inventory', href: '/inventory', icon: Package, permission: 'inventory.read' },
+  { key: 'billing', href: '/billing', icon: CreditCard, permission: 'billing.read' },
+  { key: 'folio', href: '/folio', icon: FileText, permission: 'billing.read' },
+  { key: 'pos', href: '/pos', icon: ShoppingCart, permission: 'pos.read' },
+  { key: 'reports', href: '/reports', icon: BarChart3, permission: 'reports.read' },
+  { key: 'userManagement', href: '/user-management', icon: Shield, permission: 'user_management.read' },
+  { key: 'bankAccounts', href: '/bank-accounts', icon: Banknote, permission: 'billing.update' },
+  { key: 'exchangeRates', href: '/exchange-rates', icon: ArrowLeftRight, permission: 'billing.update' },
 ];
 
 export default function Layout() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const { t } = useLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleLogout = async () => {
@@ -68,20 +81,33 @@ export default function Layout() {
 
           {/* Navigation */}
           <nav className="flex-1 space-y-1 px-2 py-4">
-            {navigation.map((item) => (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={cn(
-                  'flex items-center px-3 py-2 text-sm font-medium rounded-lg',
-                  'hover:bg-gray-100 hover:text-gray-900',
-                  'text-gray-600'
-                )}
-              >
-                <item.icon className={cn('h-5 w-5', sidebarOpen && 'mr-3')} />
-                {sidebarOpen && item.name}
-              </Link>
-            ))}
+            {navigationItems.map((item) => {
+              const navItem = (
+                <Link
+                  key={item.key}
+                  to={item.href}
+                  className={cn(
+                    'flex items-center px-3 py-2 text-sm font-medium rounded-lg',
+                    'hover:bg-gray-100 hover:text-gray-900',
+                    'text-gray-600'
+                  )}
+                >
+                  <item.icon className={cn('h-5 w-5', sidebarOpen && 'mr-3')} />
+                  {sidebarOpen && t(`navigation.${item.key}`)}
+                </Link>
+              );
+
+              // Apply permission guard if needed
+              if (item.permission) {
+                return (
+                  <PermissionGuard key={item.key} permission={item.permission} hideIfNoAccess>
+                    {navItem}
+                  </PermissionGuard>
+                );
+              }
+              
+              return navItem;
+            })}
           </nav>
 
           {/* User info & Logout */}
@@ -92,7 +118,7 @@ export default function Layout() {
                   {user.full_name}
                 </p>
                 <p className="text-xs text-gray-500">{user.email}</p>
-                <p className="text-xs text-gray-500 capitalize">{user.role}</p>
+                <p className="text-xs text-gray-500 capitalize">{user.position || 'No position assigned'}</p>
               </div>
             )}
             <Button
@@ -102,7 +128,7 @@ export default function Layout() {
               className={cn('w-full', !sidebarOpen && 'px-2')}
             >
               <LogOut className={cn('h-4 w-4', sidebarOpen && 'mr-2')} />
-              {sidebarOpen && 'Logout'}
+              {sidebarOpen && t('navigation.logout')}
             </Button>
           </div>
         </div>
@@ -114,9 +140,9 @@ export default function Layout() {
         <header className="bg-white shadow-sm border-b">
           <div className="px-6 py-4 flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">
-              Hotel Management System
+              {t('auth.hotelManagementSystem')}
             </h1>
-            <LanguageSwitcher />
+            <LanguageSwitcherEnhanced />
           </div>
         </header>
 

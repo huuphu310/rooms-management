@@ -138,23 +138,23 @@ export default function BillingEnhanced() {
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-6 mt-6">
-          <BillingDashboard />
+          {activeTab === 'dashboard' && <BillingDashboard />}
         </TabsContent>
 
         <TabsContent value="invoices" className="space-y-6 mt-6">
-          <InvoiceManagement />
+          {activeTab === 'invoices' && <InvoiceManagement />}
         </TabsContent>
 
         <TabsContent value="payments" className="space-y-6 mt-6">
-          <PaymentManagement />
+          {activeTab === 'payments' && <PaymentManagement />}
         </TabsContent>
 
         <TabsContent value="qr-payments" className="space-y-6 mt-6">
-          <QRPaymentCenter />
+          {activeTab === 'qr-payments' && <QRPaymentCenter />}
         </TabsContent>
 
         <TabsContent value="schedules" className="space-y-6 mt-6">
-          <PaymentSchedules />
+          {activeTab === 'schedules' && <PaymentSchedules />}
         </TabsContent>
 
         <TabsContent value="reports" className="space-y-6 mt-6">

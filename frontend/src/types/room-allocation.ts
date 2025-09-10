@@ -254,6 +254,50 @@ export interface UpdateAllocationAlert {
   resolved_by?: string;
 }
 
+// Unassigned Bookings
+export interface UnassignedBooking {
+  id: string;
+  booking_code: string;
+  guest_name: string;
+  guest_email?: string;
+  guest_phone?: string;
+  check_in_date: string;
+  check_out_date: string;
+  check_in_time?: string;
+  room_type_id: string;
+  room_type_name?: string;
+  adults: number;
+  children: number;
+  nights: number;
+  total_amount: number;
+  booking_date: string;
+  status: string;
+  special_requests?: string;
+  hours_until_checkin?: number;
+  severity?: AlertSeverity;
+  priority_score?: number;
+  guest_preferences?: {
+    floor_preference?: string;
+    room_features?: string[];
+    special_requirements?: string[];
+  };
+}
+
+export interface UnassignedBookingsResponse {
+  bookings: UnassignedBooking[];
+  total: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  statistics: {
+    total_unassigned: number;
+    arriving_today: number;
+    arriving_tomorrow: number;
+    overdue: number;
+    average_hours_until_checkin: number;
+  };
+}
+
 // Monthly Grid Data
 export interface RoomDailyStatus {
   date: string;
@@ -318,15 +362,25 @@ export interface UnassignedBooking {
   check_in_date: string;
   check_out_date: string;
   check_in_time?: string;
+  check_out_time?: string;
   room_type: string;
   room_type_id: string;
-  is_vip: boolean;
+  adults: number;
+  children: number;
+  infants: number;
+  total_guests: number;
+  extra_persons: number;
+  extra_person_charge: number;
+  extra_bed: boolean;
+  extra_bed_charge: number;
   special_requests?: string;
+  internal_notes?: any;
+  is_vip: boolean;
   hours_until_checkin?: number;
   alert_level: AlertSeverity;
-  available_rooms: string[];
   total_amount: number;
   paid_amount: number;
+  booking_status: string;
 }
 
 export interface UnassignedBookingsResponse {
@@ -548,24 +602,55 @@ export interface DailyAllocationSummary {
 
 // Dashboard Data
 export interface AllocationDashboard {
-  unassigned_summary: {
+  summary?: {
+    total_rooms: number;
+    occupied_rooms: number;
+    available_rooms: number;
+    occupancy_rate: number;
+    unassigned_bookings: number;
+  };
+  unassigned_summary?: {
     total_unassigned: number;
     critical: number;
     warning: number;
     info: number;
   };
-  today_arrivals: number;
-  today_departures: number;
-  total_rooms: number;
-  occupied_rooms: number;
-  available_rooms: number;
-  occupancy_rate: number;
-  recent_arrivals: Array<{
+  today_arrivals: number | {
+    count: number;
+    list: Array<{
+      booking_id: string;
+      booking_code: string;
+      guest_name: string;
+      room_number: string;
+      room_type: string;
+      check_in_time: string;
+    }>;
+  };
+  today_departures: number | {
+    count: number;
+    list: Array<{
+      booking_id: string;
+      booking_code: string;
+      guest_name: string;
+      room_number: string;
+      room_type: string;
+      check_out_time: string;
+    }>;
+  };
+  alerts?: {
+    unassigned_today: number;
+    message: string;
+  };
+  total_rooms?: number;
+  occupied_rooms?: number;
+  available_rooms?: number;
+  occupancy_rate?: number;
+  recent_arrivals?: Array<{
     guest_name: string;
     room_number: string;
     time: string;
   }>;
-  upcoming_departures: Array<{
+  upcoming_departures?: Array<{
     guest_name: string;
     room_number: string;
     time: string;

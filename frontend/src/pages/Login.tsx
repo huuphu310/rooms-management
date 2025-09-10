@@ -7,10 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { LanguageSwitcherEnhanced } from '@/components/LanguageSwitcherEnhanced';
 
 export default function Login() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t } = useLanguage();
   const { login, isLoading, error, clearError } = useAuthStore();
   
   const [formData, setFormData] = useState({
@@ -25,34 +28,41 @@ export default function Login() {
     try {
       await login(formData.email, formData.password);
       toast({
-        title: 'Login successful',
-        description: 'Welcome back!',
+        title: t('auth.loginSuccess'),
+        description: t('auth.welcomeBack'),
       });
-      navigate('/dashboard');
+      
+      // Force navigation with replace to ensure clean transition
+      setTimeout(() => {
+        navigate('/dashboard', { replace: true });
+      }, 100);
     } catch (err: any) {
       toast({
-        title: 'Login failed',
-        description: err.message || 'Please check your credentials',
+        title: t('auth.loginFailed'),
+        description: err.message || t('auth.invalidCredentials'),
         variant: 'destructive',
       });
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 relative">
+      <div className="absolute top-4 right-4">
+        <LanguageSwitcherEnhanced />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">
-            Hotel Management System
+            {t('auth.hotelManagementSystem')}
           </CardTitle>
           <CardDescription className="text-center">
-            Enter your credentials to access the dashboard
+            {t('auth.signIn')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('auth.email')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -64,7 +74,7 @@ export default function Login() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('auth.password')}</Label>
               <Input
                 id="password"
                 type="password"
@@ -81,10 +91,10 @@ export default function Login() {
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
+                  {t('common.loading')}
                 </>
               ) : (
-                'Sign In'
+                t('auth.signIn')
               )}
             </Button>
           </form>

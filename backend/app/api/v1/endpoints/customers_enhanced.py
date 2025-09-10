@@ -8,8 +8,9 @@ from app.api.deps import (
     CurrentUser,
     OptionalUser,
     require_permission,
-    get_supabase
-)
+    get_supabase,
+    UserScopedDbDep,
+    AuthenticatedDbDep)
 from app.schemas.customer_enhanced import (
     CustomerCreate,
     CustomerUpdate,
@@ -24,13 +25,12 @@ from app.schemas.customer_enhanced import (
 )
 from app.services.customer_service_enhanced import CustomerServiceEnhanced
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
-from app.core.database import get_supabase_service
+
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
 
 # Customer Management Endpoints
 @router.post("/", response_model=CustomerResponse)
@@ -50,7 +50,7 @@ async def create_customer(
     - VIP status calculation based on statistics
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     try:
@@ -66,7 +66,6 @@ async def create_customer(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create customer"
         )
-
 
 @router.get("/search", response_model=CustomerListResponse)
 async def search_customers(
@@ -98,7 +97,7 @@ async def search_customers(
     - Optional statistics calculation
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     params = CustomerSearchParams(
@@ -122,7 +121,6 @@ async def search_customers(
     
     return await service.search_customers(params)
 
-
 @router.get("/check-duplicates", response_model=DuplicateCheckResponse)
 async def check_duplicates(
     email: Optional[str] = Query(None),
@@ -145,11 +143,10 @@ async def check_duplicates(
         )
     
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     return await service.check_duplicates(email, phone, id_number)
-
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
 async def get_customer(
@@ -167,7 +164,7 @@ async def get_customer(
     - Profile completeness
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     try:
@@ -177,7 +174,6 @@ async def get_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
-
 
 @router.put("/{customer_id}", response_model=CustomerResponse)
 async def update_customer(
@@ -195,7 +191,7 @@ async def update_customer(
     - VIP status update based on new statistics
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     try:
@@ -205,7 +201,6 @@ async def update_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
-
 
 @router.post("/merge", response_model=CustomerResponse)
 async def merge_customers(
@@ -223,7 +218,7 @@ async def merge_customers(
     4. Updates statistics and VIP status
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     try:
@@ -233,7 +228,6 @@ async def merge_customers(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
-
 
 @router.delete("/{customer_id}")
 async def delete_customer(
@@ -249,7 +243,7 @@ async def delete_customer(
     - Hard delete if no bookings exist
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     service = CustomerServiceEnhanced(service_db, None)
     
     try:
@@ -267,7 +261,6 @@ async def delete_customer(
             detail=str(e)
         )
 
-
 @router.post("/{customer_id}/add-loyalty-points")
 async def add_loyalty_points(
     customer_id: UUID,
@@ -284,7 +277,7 @@ async def add_loyalty_points(
     - reason: Reason for adding points
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     
     try:
         # Get current points
@@ -328,7 +321,6 @@ async def add_loyalty_points(
             detail="Failed to add loyalty points"
         )
 
-
 @router.post("/{customer_id}/blacklist")
 async def blacklist_customer(
     customer_id: UUID,
@@ -343,7 +335,7 @@ async def blacklist_customer(
     - reason: Reason for blacklisting
     """
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     
     try:
         response = service_db.table("customers").update({
@@ -369,7 +361,6 @@ async def blacklist_customer(
             detail="Failed to blacklist customer"
         )
 
-
 @router.delete("/{customer_id}/blacklist")
 async def remove_from_blacklist(
     customer_id: UUID,
@@ -378,7 +369,7 @@ async def remove_from_blacklist(
 ):
     """Remove customer from blacklist."""
     # Use service client for database operations (RLS bypass)
-    service_db = get_supabase_service()
+    service_db: AuthenticatedDbDep
     
     try:
         response = service_db.table("customers").update({

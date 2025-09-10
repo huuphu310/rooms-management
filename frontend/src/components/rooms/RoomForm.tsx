@@ -30,12 +30,16 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { formatCurrency } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
 import type { Room, RoomType, RoomCreateInput, RoomUpdateInput } from '@/services/roomService';
+import buildingService from '@/services/buildingService';
 
 const roomSchema = z.object({
   room_number: z.string().min(1, 'Số phòng là bắt buộc').max(20),
   room_type_id: z.string().min(1, 'Loại phòng là bắt buộc'),
   floor: z.number().min(0, 'Tầng phải >= 0').max(100, 'Tầng phải <= 100'),
+  building_id: z.string().optional(),
   view_type: z.string().optional(),
   status: z.string().optional(),
   notes: z.string().optional(),
@@ -77,12 +81,21 @@ export const RoomForm: React.FC<RoomFormProps> = ({
   roomTypes,
   loading,
 }) => {
+  // Fetch buildings
+  const { data: buildingsData } = useQuery({
+    queryKey: ['buildings'],
+    queryFn: () => buildingService.getBuildings({ limit: 100 }),
+  });
+
+  const buildings = buildingsData?.data || [];
+
   const form = useForm<RoomFormValues>({
     resolver: zodResolver(roomSchema),
     defaultValues: {
       room_number: '',
       room_type_id: '',
       floor: 1,
+      building_id: '',
       view_type: '',
       status: 'available',
       notes: '',
@@ -96,6 +109,7 @@ export const RoomForm: React.FC<RoomFormProps> = ({
         room_number: room.room_number,
         room_type_id: room.room_type_id,
         floor: room.floor,
+        building_id: room.building_id || '',
         view_type: room.view_type || '',
         status: room.status,
         notes: room.notes || '',
@@ -106,6 +120,7 @@ export const RoomForm: React.FC<RoomFormProps> = ({
         room_number: '',
         room_type_id: '',
         floor: 1,
+        building_id: '',
         view_type: undefined,
         status: 'available',
         notes: '',
@@ -122,6 +137,7 @@ export const RoomForm: React.FC<RoomFormProps> = ({
         if (values.room_number !== room.room_number) updateData.room_number = values.room_number;
         if (values.room_type_id !== room.room_type_id) updateData.room_type_id = values.room_type_id;
         if (values.floor !== room.floor) updateData.floor = values.floor;
+        if (values.building_id !== room.building_id) updateData.building_id = values.building_id;
         if (values.view_type !== room.view_type) updateData.view_type = values.view_type;
         if (values.status !== room.status) updateData.status = values.status;
         if (values.notes !== room.notes) updateData.notes = values.notes;
@@ -169,6 +185,71 @@ export const RoomForm: React.FC<RoomFormProps> = ({
 
               <FormField
                 control={form.control}
+                name="room_type_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Loại phòng *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Chọn loại phòng" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {roomTypes.map((type) => (
+                          <SelectItem key={type.id} value={type.id}>
+                            {type.name} - {formatCurrency(type.base_price)}/đêm
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="building_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tòa nhà</FormLabel>
+                    <Select 
+                      onValueChange={field.onChange} 
+                      value={field.value || ''}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Chọn tòa nhà" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {buildings.length === 0 ? (
+                          <SelectItem value="_none" disabled>
+                            Chưa có tòa nhà nào
+                          </SelectItem>
+                        ) : (
+                          buildings.map((building) => (
+                            <SelectItem key={building.id} value={building.id}>
+                              {building.name}
+                              {building.is_main_building && ' (Tòa chính)'}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Chọn tòa nhà cho phòng này
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="floor"
                 render={({ field }) => (
                   <FormItem>
@@ -187,34 +268,6 @@ export const RoomForm: React.FC<RoomFormProps> = ({
                 )}
               />
             </div>
-
-            <FormField
-              control={form.control}
-              name="room_type_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Loại phòng *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Chọn loại phòng" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {roomTypes.map((type) => (
-                        <SelectItem key={type.id} value={type.id}>
-                          {type.name} - {new Intl.NumberFormat('vi-VN', {
-                            style: 'currency',
-                            currency: 'VND'
-                          }).format(type.base_price)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

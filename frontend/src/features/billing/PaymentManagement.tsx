@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -7,15 +7,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { billingEnhancedApi } from '@/lib/api/billing-enhanced'
 import type { Payment } from '@/types/billing-enhanced'
 import { CreditCard, Plus, Filter, Download, Search, DollarSign, TrendingUp, Calendar } from 'lucide-react'
+import { RecordDirectPaymentDialog } from './components/RecordDirectPaymentDialog'
+import { useToast } from '@/components/ui/use-toast'
 
 export default function PaymentManagement() {
+  const { toast } = useToast()
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [methodFilter, setMethodFilter] = useState<string>('all')
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => {
-    loadPayments()
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true
+      loadPayments()
+    }
   }, [])
 
   const loadPayments = async () => {
@@ -28,6 +36,18 @@ export default function PaymentManagement() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handlePaymentRecorded = () => {
+    toast({
+      title: 'Success',
+      description: 'Payment has been recorded successfully',
+    })
+    loadPayments() // Reload payments list
+  }
+
+  const handleRecordPaymentClick = () => {
+    setIsPaymentDialogOpen(true)
   }
 
   const formatCurrency = (amount: number) => {
@@ -101,7 +121,7 @@ export default function PaymentManagement() {
             Track and manage all payment transactions
           </p>
         </div>
-        <Button>
+        <Button onClick={handleRecordPaymentClick}>
           <Plus className="mr-2 h-4 w-4" />
           Record Payment
         </Button>
@@ -204,7 +224,7 @@ export default function PaymentManagement() {
                   <Filter className="mr-2 h-4 w-4" />
                   Clear Filters
                 </Button>
-                <Button>
+                <Button onClick={handleRecordPaymentClick}>
                   <Plus className="mr-2 h-4 w-4" />
                   Record Payment
                 </Button>
@@ -252,6 +272,13 @@ export default function PaymentManagement() {
           )}
         </CardContent>
       </Card>
+
+      {/* Record Payment Dialog */}
+      <RecordDirectPaymentDialog
+        open={isPaymentDialogOpen}
+        onOpenChange={setIsPaymentDialogOpen}
+        onPaymentRecorded={handlePaymentRecorded}
+      />
     </div>
   )
 }

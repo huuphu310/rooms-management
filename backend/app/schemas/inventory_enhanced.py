@@ -191,7 +191,7 @@ class ProductEnhanced(BaseModel):
     name: str = Field(..., max_length=200)
     sku: str = Field(..., max_length=100)
     barcode: Optional[str] = Field(None, max_length=100)
-    category_id: UUID
+    category_id: Optional[UUID] = None
     
     # Alternative Identifiers
     internal_code: Optional[str] = Field(None, max_length=50)
@@ -207,13 +207,13 @@ class ProductEnhanced(BaseModel):
     product_type: str = Field(default="inventory", max_length=50)  # inventory, recipe, bundle
     
     # Units
-    base_unit: str = Field(..., max_length=50)
+    base_unit: Optional[str] = Field(default="pcs", max_length=50)
     purchase_unit: Optional[str] = Field(None, max_length=50)
     sale_unit: Optional[str] = Field(None, max_length=50)
     unit_conversion_factor: Decimal = Field(default=1, gt=0, decimal_places=4)
     
     # Costing
-    standard_cost: Decimal = Field(default=0, ge=0, decimal_places=4)
+    cost_price: Decimal = Field(default=0, ge=0, decimal_places=4)
     average_cost: Decimal = Field(default=0, ge=0, decimal_places=4)
     last_cost: Decimal = Field(default=0, ge=0, decimal_places=4)
     
@@ -755,16 +755,36 @@ class ProductEnhancedUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class PurchaseOrderItemCreate(BaseModel):
+    """Simple purchase order item for creation"""
+    product_id: Union[UUID, str]  # Accept both UUID and string
+    quantity: Union[Decimal, float, int] = Field(..., gt=0)
+    unit_cost: Union[Decimal, float] = Field(..., ge=0)
+    tax_amount: Optional[Union[Decimal, float]] = Field(default=0)
+    discount_amount: Optional[Union[Decimal, float]] = Field(default=0)
+    notes: Optional[str] = None
+    
+    class Config:
+        json_encoders = {
+            Decimal: float
+        }
+
+
 class PurchaseOrderEnhancedCreate(BaseModel):
-    supplier_id: UUID
-    order_date: date = Field(default_factory=date.today)
-    expected_delivery_date: Optional[date] = None
-    delivery_location_id: Optional[UUID] = None
+    supplier_id: Union[UUID, str]  # Accept both UUID and string
+    order_date: Optional[Union[date, str]] = Field(default_factory=date.today)
+    expected_date: Optional[Union[date, str]] = None  # Match frontend field name
+    expected_delivery_date: Optional[Union[date, str]] = None  # Keep for backward compatibility
     delivery_address: Optional[str] = None
-    delivery_instructions: Optional[str] = None
     payment_terms: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = None
-    items: List[PurchaseOrderItemEnhanced]
+    items: List[PurchaseOrderItemCreate]
+    
+    class Config:
+        json_encoders = {
+            Decimal: float,
+            date: lambda v: v.isoformat() if v else None
+        }
 
 
 class RecipeEnhancedCreate(RecipeEnhanced):

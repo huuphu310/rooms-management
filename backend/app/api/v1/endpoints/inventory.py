@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from sqlalchemy.orm import Session
 from decimal import Decimal
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db, get_current_user,
+    UserScopedDbDep,
+    AuthenticatedDbDep
 from app.schemas.inventory import (
     ProductCreate, ProductUpdate, ProductResponse,
     StockMovementCreate, StockMovementResponse, StockAdjustment,
@@ -18,7 +20,6 @@ from app.core.logger import logger
 
 router = APIRouter()
 
-
 # Product endpoints
 @router.post("/products", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
@@ -28,7 +29,6 @@ async def create_product(
 ):
     """Create a new product"""
     return await InventoryService.create_product(db, product)
-
 
 @router.put("/products/{product_id}", response_model=ProductResponse)
 async def update_product(
@@ -40,7 +40,6 @@ async def update_product(
     """Update product information"""
     return await InventoryService.update_product(db, product_id, product_update)
 
-
 @router.post("/products/{product_id}/adjust-stock", response_model=StockMovementResponse)
 async def adjust_stock(
     product_id: UUID,
@@ -51,7 +50,6 @@ async def adjust_stock(
     """Adjust product stock level"""
     adjustment.product_id = product_id
     return await InventoryService.adjust_stock(db, adjustment, current_user['id'])
-
 
 @router.post("/products/{product_id}/sale", response_model=StockMovementResponse)
 async def record_sale(
@@ -65,7 +63,6 @@ async def record_sale(
     """Record a product sale"""
     return await InventoryService.record_sale(db, product_id, quantity, unit_price, reference_id)
 
-
 @router.get("/products/low-stock", response_model=List[ProductResponse])
 async def get_low_stock_products(
     db: Session = Depends(get_db),
@@ -73,7 +70,6 @@ async def get_low_stock_products(
 ):
     """Get products with low stock"""
     return await InventoryService.get_low_stock_products(db)
-
 
 # Supplier endpoints
 @router.post("/suppliers", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
@@ -85,7 +81,6 @@ async def create_supplier(
     """Create a new supplier"""
     return await InventoryService.create_supplier(db, supplier)
 
-
 # Purchase Order endpoints
 @router.post("/purchase-orders", response_model=PurchaseOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_purchase_order(
@@ -95,7 +90,6 @@ async def create_purchase_order(
 ):
     """Create a new purchase order"""
     return await InventoryService.create_purchase_order(db, order, current_user['id'])
-
 
 @router.post("/purchase-orders/{order_id}/receive", response_model=PurchaseOrderResponse)
 async def receive_purchase_order(
@@ -108,7 +102,6 @@ async def receive_purchase_order(
     items_dict = {UUID(k): v for k, v in received_items.items()}
     return await InventoryService.receive_purchase_order(db, order_id, items_dict, current_user['id'])
 
-
 # Service endpoints
 @router.post("/services", response_model=ServiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_service(
@@ -118,7 +111,6 @@ async def create_service(
 ):
     """Create a new service"""
     return await InventoryService.create_service(db, service)
-
 
 # Report endpoints
 @router.get("/report", response_model=InventoryReport)

@@ -123,10 +123,12 @@ export function StockAdjustmentDialog({
               </div>
               
               <div className="flex items-center gap-2 mt-3">
-                <Badge variant={product.stock_status === 'in_stock' ? 'default' : 
-                              product.stock_status === 'low_stock' ? 'secondary' : 'destructive'}>
-                  {product.stock_status.replace('_', ' ')}
-                </Badge>
+                {product.stock_status && (
+                  <Badge variant={product.stock_status === 'in_stock' ? 'default' : 
+                                product.stock_status === 'low_stock' ? 'secondary' : 'destructive'}>
+                    {product.stock_status.replace('_', ' ')}
+                  </Badge>
+                )}
                 <span className="text-sm text-muted-foreground">
                   Min: {product.min_stock_level} {product.unit_of_measure}
                 </span>

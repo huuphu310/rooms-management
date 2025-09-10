@@ -61,7 +61,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
     queryFn: async () => {
       const params = roomTypeId ? { room_type_id: roomTypeId } : {};
       const response = await api.get('/pricing/seasonal-rates', { params });
-      return response.data.data as SeasonalRate[];
+      return response.data.seasonal_rates as SeasonalRate[];
     },
   });
 
@@ -219,12 +219,12 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle>Seasonal Pricing</CardTitle>
-            <CardDescription>Manage seasonal rate adjustments</CardDescription>
+            <CardTitle>{t('roomTypes.seasonalPricing')}</CardTitle>
+            <CardDescription>{t('roomTypes.manageSeasonalRateAdjustments')}</CardDescription>
           </div>
           <Button onClick={() => handleOpenDialog()}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Seasonal Rate
+{t('roomTypes.addSeasonalRate')}
           </Button>
         </div>
       </CardHeader>
@@ -239,15 +239,15 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Season Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Period</TableHead>
-                <TableHead>Adjustment</TableHead>
-                <TableHead>Min Stay</TableHead>
-                <TableHead>Days</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('roomTypes.seasonName')}</TableHead>
+                <TableHead>{t('roomTypes.seasonType')}</TableHead>
+                <TableHead>{t('roomTypes.period')}</TableHead>
+                <TableHead>{t('roomTypes.adjustment')}</TableHead>
+                <TableHead>{t('roomTypes.minStay')}</TableHead>
+                <TableHead>{t('roomTypes.days')}</TableHead>
+                <TableHead>{t('roomTypes.priority')}</TableHead>
+                <TableHead>{t('roomTypes.status')}</TableHead>
+                <TableHead className="text-right">{t('roomTypes.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -316,16 +316,16 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle>
-                {selectedRate ? 'Edit Seasonal Rate' : 'Add Seasonal Rate'}
+{selectedRate ? t('roomTypes.editSeasonalRate') : t('roomTypes.addSeasonalRate')}
               </DialogTitle>
               <DialogDescription>
-                Configure seasonal pricing adjustments
+{t('roomTypes.configureSeasonalPricingAdjustments')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="season_name">Season Name</Label>
+                  <Label htmlFor="season_name">{t('roomTypes.seasonName')}</Label>
                   <Input
                     id="season_name"
                     value={formData.season_name || ''}
@@ -334,7 +334,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
                   />
                 </div>
                 <div>
-                  <Label htmlFor="season_type">Season Type</Label>
+                  <Label htmlFor="season_type">{t('roomTypes.seasonType')}</Label>
                   <Select
                     value={formData.season_type}
                     onValueChange={(value) => setFormData({ ...formData, season_type: value as any })}
@@ -343,9 +343,9 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="high">High Season</SelectItem>
-                      <SelectItem value="low">Low Season</SelectItem>
-                      <SelectItem value="special_event">Special Event</SelectItem>
+                      <SelectItem value="high">{t('roomTypes.highSeason')}</SelectItem>
+                      <SelectItem value="low">{t('roomTypes.lowSeason')}</SelectItem>
+                      <SelectItem value="special_event">{t('roomTypes.specialEvent')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -353,13 +353,13 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
 
               {!roomTypeId && roomTypes && (
                 <div>
-                  <Label htmlFor="room_type_id">Room Type</Label>
+                  <Label htmlFor="room_type_id">{t('roomTypes.roomType')}</Label>
                   <Select
                     value={formData.room_type_id}
                     onValueChange={(value) => setFormData({ ...formData, room_type_id: value })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select room type" />
+                      <SelectValue placeholder={t('roomTypes.selectRoomType')} />
                     </SelectTrigger>
                     <SelectContent>
                       {roomTypes.map((type) => (
@@ -374,7 +374,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="start_date">Start Date</Label>
+                  <Label htmlFor="start_date">{t('roomTypes.startDate')}</Label>
                   <Input
                     id="start_date"
                     type="date"
@@ -384,7 +384,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
                   />
                 </div>
                 <div>
-                  <Label htmlFor="end_date">End Date</Label>
+                  <Label htmlFor="end_date">{t('roomTypes.endDate')}</Label>
                   <Input
                     id="end_date"
                     type="date"
@@ -397,7 +397,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="rate_type">Rate Type</Label>
+                  <Label htmlFor="rate_type">{t('roomTypes.rateType')}</Label>
                   <Select
                     value={formData.rate_type}
                     onValueChange={(value) => setFormData({ ...formData, rate_type: value as any })}
@@ -406,19 +406,19 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="multiplier">Multiplier (%)</SelectItem>
-                      <SelectItem value="fixed">Fixed Rate</SelectItem>
-                      <SelectItem value="addition">Addition (+/-)</SelectItem>
+                      <SelectItem value="multiplier">{t('roomTypes.multiplierPercent')}</SelectItem>
+                      <SelectItem value="fixed">{t('roomTypes.fixedRate')}</SelectItem>
+                      <SelectItem value="addition">{t('roomTypes.additionAmount')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="rate_value">
                     {formData.rate_type === 'multiplier'
-                      ? 'Multiplier (e.g., 1.2 for +20%)'
+                      ? t('roomTypes.multiplierExample')
                       : formData.rate_type === 'fixed'
-                      ? 'Fixed Rate'
-                      : 'Addition Amount'}
+                      ? t('roomTypes.fixedRate')
+                      : t('roomTypes.additionAmount')}
                   </Label>
                   <Input
                     id="rate_value"
@@ -448,7 +448,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="min_stay_nights">Minimum Stay (nights)</Label>
+                  <Label htmlFor="min_stay_nights">{t('roomTypes.minimumStayNights')}</Label>
                   <Input
                     id="min_stay_nights"
                     type="number"
@@ -458,7 +458,7 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
                   />
                 </div>
                 <div>
-                  <Label htmlFor="priority">Priority (higher = more important)</Label>
+                  <Label htmlFor="priority">{t('roomTypes.priorityHigherMoreImportant')}</Label>
                   <Input
                     id="priority"
                     type="number"
@@ -470,10 +470,10 @@ export const SeasonalPricing: React.FC<SeasonalPricingProps> = ({ roomTypeId, ro
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleCloseDialog}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {selectedRate ? 'Update' : 'Create'}
+                {selectedRate ? t('common.update') : t('common.create')}
               </Button>
             </DialogFooter>
           </form>

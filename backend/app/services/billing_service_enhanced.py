@@ -1,8 +1,10 @@
 import hashlib
 import hmac
 import json
+import logging
 import re
 import requests
+import secrets
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from uuid import UUID, uuid4
@@ -16,6 +18,8 @@ from app.core.exceptions import (
     BusinessRuleException
 )
 from app.schemas.billing_enhanced import *
+
+logger = logging.getLogger(__name__)
 
 
 class BillingServiceEnhanced:
@@ -103,11 +107,8 @@ class BillingServiceEnhanced:
 
         self.db.table("billing_invoice_items").insert(item_data).execute()
 
-        # Update booking status
-        self.db.table("bookings")\
-            .update({"status": "pending_deposit"})\
-            .eq("id", str(deposit_data.booking_id))\
-            .execute()
+        # Don't update booking status - keep it as "pending"
+        # The invalid "pending_deposit" status was causing the deposit invoice creation to fail
 
         return await self.get_invoice(UUID(invoice_id))
 
@@ -168,6 +169,137 @@ class BillingServiceEnhanced:
 
         return await self.get_invoice(UUID(invoice_id))
 
+    async def create_invoice_from_folio(self, folio_id: UUID, user_id: Optional[UUID] = None) -> Dict:
+        """Create an invoice from a folio with all its postings"""
+        try:
+            from app.services.folio_service import FolioService
+            folio_service = FolioService(self.db)
+            
+            # Generate invoice from folio
+            invoice = await folio_service.generate_invoice(folio_id)
+            
+            # Add any additional formatting or processing
+            formatted_invoice = self._format_invoice_response(invoice)
+            
+            # Clear cache
+            if self.redis_client:
+                await self.redis_client.delete(f"invoice:{invoice['id']}")
+                if invoice.get('booking_id'):
+                    await self.redis_client.delete(f"booking:{invoice['booking_id']}:invoices")
+            
+            return formatted_invoice
+            
+        except Exception as e:
+            logger.error(f"Error creating invoice from folio: {str(e)}")
+            raise BadRequestException(f"Failed to create invoice from folio: {str(e)}")
+
+    async def get_folio_statement(self, booking_id: UUID, user_id: Optional[UUID] = None) -> Dict:
+        """Get detailed folio statement for a booking"""
+        try:
+            # Get folio for the booking
+            folio_result = self.db.table("folios").select("*").eq("booking_id", str(booking_id)).execute()
+            
+            if not folio_result.data:
+                raise NotFoundException(f"No folio found for booking {booking_id}")
+            
+            folio = folio_result.data[0]
+            
+            # Get folio postings separately
+            postings_result = self.db.table("folio_postings").select("*").eq("folio_id", folio['id']).execute()
+            folio['folio_postings'] = postings_result.data if postings_result.data else []
+            
+            # Group postings by type
+            postings_by_type = {
+                'room_charges': [],
+                'pos_charges': [],
+                'surcharges': [],
+                'discounts': [],
+                'taxes': [],
+                'deposits': [],
+                'payments': [],
+                'refunds': [],
+                'adjustments': []
+            }
+            
+            for posting in folio.get('folio_postings', []):
+                posting_type = posting['posting_type']
+                if posting_type == 'room':
+                    postings_by_type['room_charges'].append(posting)
+                elif posting_type == 'pos':
+                    postings_by_type['pos_charges'].append(posting)
+                elif posting_type == 'surcharge':
+                    postings_by_type['surcharges'].append(posting)
+                elif posting_type == 'discount':
+                    postings_by_type['discounts'].append(posting)
+                elif posting_type == 'tax':
+                    postings_by_type['taxes'].append(posting)
+                elif posting_type == 'deposit':
+                    postings_by_type['deposits'].append(posting)
+                elif posting_type == 'payment':
+                    postings_by_type['payments'].append(posting)
+                elif posting_type == 'refund':
+                    postings_by_type['refunds'].append(posting)
+                elif posting_type == 'adjustment':
+                    postings_by_type['adjustments'].append(posting)
+            
+            # Calculate totals
+            total_room = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['room_charges'])
+            total_pos = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['pos_charges'])
+            total_surcharges = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['surcharges'])
+            total_discounts = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['discounts'])
+            total_taxes = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['taxes'])
+            total_deposits = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['deposits'])
+            total_payments = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['payments'])
+            total_refunds = sum(Decimal(str(p['total_amount'])) for p in postings_by_type['refunds'])
+            
+            subtotal = total_room + total_pos + total_surcharges + total_discounts
+            grand_total = subtotal + total_taxes
+            total_credits = total_deposits + total_payments + total_refunds
+            balance_due = grand_total + total_credits  # Credits are negative
+            
+            return {
+                'folio_id': folio['id'],
+                'folio_number': folio['folio_number'],
+                'booking_id': folio['booking_id'],
+                'created_at': folio['created_at'],
+                'is_closed': folio.get('is_closed', False),
+                'closed_at': folio.get('closed_at'),
+                'postings_by_type': {
+                    k: [{
+                        'id': p['id'],
+                        'date': p['posting_date'],
+                        'time': p.get('posting_time'),
+                        'description': p['description'],
+                        'quantity': p.get('quantity', 1),
+                        'unit_price': float(p.get('unit_price', 0)),
+                        'amount': float(p['amount']),
+                        'tax': float(p.get('tax_amount', 0)),
+                        'total': float(p['total_amount']),
+                        'reference': p.get('reference'),
+                        'is_void': p.get('is_void', False)
+                    } for p in v if not p.get('is_void', False)]
+                    for k, v in postings_by_type.items()
+                },
+                'summary': {
+                    'room_charges': float(total_room),
+                    'pos_charges': float(total_pos),
+                    'surcharges': float(total_surcharges),
+                    'discounts': float(total_discounts),
+                    'subtotal': float(subtotal),
+                    'taxes': float(total_taxes),
+                    'grand_total': float(grand_total),
+                    'deposits': float(total_deposits),
+                    'payments': float(total_payments),
+                    'refunds': float(total_refunds),
+                    'total_credits': float(total_credits),
+                    'balance_due': float(balance_due)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting folio statement: {str(e)}")
+            raise
+
     async def get_invoice(self, invoice_id: UUID) -> InvoiceResponse:
         """Get invoice by ID with items"""
         result = self.db.table("billing_invoices")\
@@ -183,16 +315,31 @@ class BillingServiceEnhanced:
 
     async def get_invoices(self, params: InvoiceSearchParams) -> List[InvoiceResponse]:
         """Get invoices with filtering"""
+        
+        # If filtering by booking_code, we need to first get the booking_id
+        booking_id_for_code = None
+        if params.booking_code:
+            booking_result = self.db.table("bookings").select("id").eq("booking_code", params.booking_code).execute()
+            if booking_result.data:
+                booking_id_for_code = booking_result.data[0]["id"]
+            else:
+                # No booking found with this code, return empty list
+                return []
+        
         query = self.db.table("billing_invoices").select("*, billing_invoice_items(*)")
         
         if params.booking_id:
             query = query.eq("booking_id", str(params.booking_id))
+        elif booking_id_for_code:
+            query = query.eq("booking_id", booking_id_for_code)
         if params.customer_id:
             query = query.eq("customer_id", str(params.customer_id))
         if params.invoice_type:
             query = query.eq("invoice_type", params.invoice_type)
         if params.status:
-            query = query.eq("status", params.status)
+            # Convert enum to string value if needed
+            status_value = params.status.value if hasattr(params.status, 'value') else str(params.status)
+            query = query.eq("status", status_value)
         if params.date_from:
             query = query.gte("invoice_date", params.date_from.isoformat())
         if params.date_to:
@@ -200,9 +347,10 @@ class BillingServiceEnhanced:
         if params.search:
             query = query.ilike("invoice_number", f"%{params.search}%")
 
-        # Order and pagination
+        # Order and pagination - but skip pagination if we have specific booking_id filter
         query = query.order(params.sort_by, desc=(params.order == "desc"))
-        query = query.range((params.page - 1) * params.limit, params.page * params.limit - 1)
+        if not params.booking_id and not booking_id_for_code:
+            query = query.range((params.page - 1) * params.limit, params.page * params.limit - 1)
 
         result = query.execute()
         return [self._format_invoice_response(invoice) for invoice in result.data]
@@ -308,6 +456,96 @@ class BillingServiceEnhanced:
 
         return payment
 
+    async def record_payment(self, payment_data: RecordPayment, user_id: str) -> PaymentResponse:
+        """Record payment against an invoice"""
+        
+        # Verify invoice exists
+        invoice = self.db.table("billing_invoices")\
+            .select("*")\
+            .eq("id", str(payment_data.invoice_id))\
+            .execute()
+            
+        if not invoice.data:
+            raise NotFoundException(f"Invoice {payment_data.invoice_id} not found")
+        
+        invoice_record = invoice.data[0]
+        payment_code = await self._generate_payment_code()
+        
+        # Create payment record
+        payment_create = {
+            "payment_code": payment_code,
+            "invoice_id": str(payment_data.invoice_id),
+            "booking_id": invoice_record.get("booking_id"),
+            "amount": float(payment_data.amount),
+            "currency": "VND",
+            "payment_method": payment_data.payment_method,
+            "payment_date": str(payment_data.payment_date) if payment_data.payment_date else datetime.now().date().isoformat(),
+            "reference_number": payment_data.transaction_reference,
+            "payment_category": "partial" if float(payment_data.amount) < (float(invoice_record["total_amount"]) - float(invoice_record.get("paid_amount", 0))) else "final",
+            "payment_status": "completed",
+            "payment_details": None,  # Add missing field
+            "is_deposit": invoice_record["invoice_type"] == "deposit",
+            "is_refund": False,
+            "refund_reason": None,  # Add missing field
+            "original_payment_id": None,  # Add missing field
+            "notes": payment_data.notes,
+            "received_by": user_id
+        }
+        
+        result = self.db.table("billing_payments").insert(payment_create).execute()
+        
+        if not result.data:
+            raise ValidationException("Failed to record payment")
+        
+        # Update invoice payment status
+        await self._update_invoice_payment_status(payment_data.invoice_id)
+        
+        # Check if booking is fully paid
+        if invoice_record.get("booking_id"):
+            await self._check_booking_payment_completion(UUID(invoice_record["booking_id"]))
+        
+        return self._format_payment_response(result.data[0])
+
+    async def record_direct_payment(self, payment_data: RecordDirectPayment, user_id: str) -> PaymentResponse:
+        """Record direct payment not tied to an invoice"""
+        
+        payment_code = await self._generate_payment_code()
+        
+        # Create payment record
+        payment_create = {
+            "payment_code": payment_code,
+            "invoice_id": str(payment_data.invoice_id) if payment_data.invoice_id else None,
+            "booking_id": str(payment_data.booking_id) if payment_data.booking_id else None,
+            "customer_id": str(payment_data.customer_id) if payment_data.customer_id else None,
+            "amount": float(payment_data.amount),
+            "currency": "VND",
+            "payment_method": payment_data.payment_method,
+            "payment_date": str(payment_data.payment_date) if payment_data.payment_date else datetime.now().date().isoformat(),
+            "reference_number": payment_data.transaction_reference,
+            "payment_category": "direct",
+            "payment_status": "completed",
+            "is_deposit": False,
+            "is_refund": False,
+            "notes": payment_data.notes or payment_data.payment_for,
+            "payment_for": payment_data.payment_for,
+            "received_by": user_id
+        }
+        
+        result = self.db.table("billing_payments").insert(payment_create).execute()
+        
+        if not result.data:
+            raise ValidationException("Failed to record direct payment")
+        
+        # If tied to an invoice, update its status
+        if payment_data.invoice_id:
+            await self._update_invoice_payment_status(payment_data.invoice_id)
+        
+        # If tied to a booking, check payment completion
+        if payment_data.booking_id:
+            await self._check_booking_payment_completion(payment_data.booking_id)
+        
+        return self._format_payment_response(result.data[0])
+
     # Payment Summary
     async def get_booking_payment_summary(self, booking_id: UUID) -> BookingPaymentSummary:
         """Get comprehensive payment summary for booking"""
@@ -364,137 +602,129 @@ class BillingServiceEnhanced:
 
     # QR Code Payment Integration
     async def generate_qr_code(self, qr_data: GenerateQRCode) -> QRCodeResponse:
-        """Generate VietQR code for payment"""
-        
-        booking = await self._get_booking(qr_data.booking_id)
-        
-        # Generate unique QR code ID
-        qr_code_id = self._generate_qr_id()
-        
-        # Create transfer content
-        transfer_content = f"{booking.get('booking_code', '')}-{qr_code_id}"
-        
-        # Generate QR code via VietQR API
-        qr_result = await self._call_vietqr_api(
-            qr_data.amount,
-            transfer_content,
-            self.seapay_config
-        )
-        
-        # Calculate expiry time
-        expires_at = datetime.now() + timedelta(minutes=qr_data.expiry_minutes)
-        
-        # Store QR payment record
-        qr_payment_data = {
-            "qr_code_id": qr_code_id,
-            "qr_code_url": qr_result.get("qr_code_url"),
-            "invoice_id": str(qr_data.invoice_id),
-            "booking_id": str(qr_data.booking_id),
-            "bank_account": self.seapay_config['bank_account'],
-            "bank_name": "Vietcombank",
-            "account_holder": self.seapay_config['account_holder'],
-            "expected_amount": float(qr_data.amount),
-            "currency": "VND",
-            "status": "pending",
-            "qr_generated_at": datetime.now().isoformat(),
-            "expires_at": expires_at.isoformat()
-        }
-        
-        result = self.db.table("billing_qr_payments").insert(qr_payment_data).execute()
-        qr_payment_id = result.data[0]["id"]
-        
-        payment_info = QRPaymentInfo(
-            bank="Vietcombank",
-            account_number=self.seapay_config['bank_account'],
-            account_holder=self.seapay_config['account_holder'],
-            amount=qr_data.amount,
-            transfer_content=transfer_content,
-            qr_code_id=qr_code_id
-        )
-        
-        return QRCodeResponse(
-            qr_payment_id=UUID(qr_payment_id),
-            qr_code_url=qr_result.get("qr_code_url", ""),
-            qr_code_data=qr_result.get("qr_code_data", ""),
-            payment_info=payment_info,
-            expires_at=expires_at
-        )
+        """Generate VietQR code for payment using new payment integration system"""
+        try:
+            # Import here to avoid circular dependency
+            from app.services.payment_integration_service import PaymentIntegrationService
+            from app.schemas.payment_integration import QRCodeGenerateRequest
+            
+            # Create payment integration service
+            payment_service = PaymentIntegrationService(self.db, self.redis_client)
+            
+            # Get booking details for invoice code
+            booking = await self._get_booking(qr_data.booking_id)
+            invoice_code = booking.get('booking_code', f"INV{secrets.token_hex(4).upper()}")
+            
+            # Create QR request
+            qr_request = QRCodeGenerateRequest(
+                amount=qr_data.amount,
+                invoice_code=invoice_code,
+                invoice_id=qr_data.invoice_id,
+                booking_id=qr_data.booking_id,
+                expiry_hours=qr_data.expiry_minutes // 60 if qr_data.expiry_minutes >= 60 else 1,
+                description=f"Payment for booking {booking.get('booking_code', '')}"
+            )
+            
+            # Generate QR code using payment integration service
+            qr_response = await payment_service.generate_qr_code(qr_request, UUID("00000000-0000-0000-0000-000000000000"))
+            
+            # Convert to legacy response format for backward compatibility
+            payment_info = QRPaymentInfo(
+                bank=qr_response.bank_code,
+                account_number=qr_response.bank_account,
+                account_holder="HOMESTAY ABC",  # From config
+                amount=qr_response.amount,
+                transfer_content=qr_response.payment_content,
+                qr_code_id=qr_response.qr_code_id
+            )
+            
+            # Generate a proper UUID for backward compatibility
+            # Use a hash of the qr_code_id to ensure consistency
+            import hashlib
+            qr_uuid_bytes = hashlib.md5(qr_response.qr_code_id.encode()).digest()
+            qr_payment_uuid = UUID(bytes=qr_uuid_bytes)
+            
+            return QRCodeResponse(
+                qr_payment_id=qr_payment_uuid,
+                qr_code_url=qr_response.qr_image_url,
+                qr_code_data=qr_response.qr_image_url,  # Same as URL for backward compatibility
+                payment_info=payment_info,
+                expires_at=qr_response.expires_at
+            )
+            
+        except Exception as e:
+            logger.error(f"Error generating QR code: {str(e)}")
+            raise
 
     async def process_seapay_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, str]:
-        """Process SEAPay webhook for bank transfer notifications"""
-        
-        # Verify webhook signature
-        signature = webhook_data.get("signature", "")
-        if not self._verify_seapay_signature(webhook_data, signature):
-            raise ValidationException("Invalid webhook signature")
-        
-        # Log webhook for auditing
-        webhook_log = {
-            "webhook_id": webhook_data.get("id"),
-            "event_type": webhook_data.get("event"),
-            "transaction_id": webhook_data["data"]["transaction_id"],
-            "account_number": webhook_data["data"]["account_number"],
-            "amount": float(webhook_data["data"]["amount"]),
-            "transaction_content": webhook_data["data"]["content"],
-            "transaction_date": webhook_data["data"]["transaction_date"],
-            "payload": webhook_data,
-            "is_valid_signature": True,
-            "processed": False
-        }
-        
-        self.db.table("billing_seapay_webhooks").insert(webhook_log).execute()
-        
-        # Extract QR code from transfer content
-        transaction_content = webhook_data["data"]["content"]
-        qr_code_id = self._extract_qr_code_from_content(transaction_content)
-        
-        if not qr_code_id:
-            return {"status": "no_match", "message": "No QR code found in transaction content"}
-        
-        # Find matching QR payment
-        qr_payment = self.db.table("billing_qr_payments")\
-            .select("*")\
-            .eq("qr_code_id", qr_code_id)\
-            .eq("status", "pending")\
-            .execute()
-        
-        if not qr_payment.data:
-            return {"status": "no_match", "message": "No matching QR payment found"}
-        
-        qr_payment_record = qr_payment.data[0]
-        received_amount = Decimal(webhook_data["data"]["amount"])
-        expected_amount = Decimal(qr_payment_record["expected_amount"])
-        
-        # Determine payment status based on amount comparison
-        status = self._determine_qr_payment_status(received_amount, expected_amount)
-        
-        # Update QR payment record
-        update_data = {
-            "received_amount": float(received_amount),
-            "bank_transaction_id": webhook_data["data"]["transaction_id"],
-            "transaction_content": transaction_content,
-            "matched_code": qr_code_id,
-            "sender_account": webhook_data["data"].get("sender_account"),
-            "sender_name": webhook_data["data"].get("sender_name"),
-            "status": status,
-            "payment_received_at": datetime.now().isoformat(),
-            "webhook_payload": webhook_data
-        }
-        
-        self.db.table("billing_qr_payments")\
-            .update(update_data)\
-            .eq("id", qr_payment_record["id"])\
-            .execute()
-        
-        # Process payment based on status
-        if status == "matched":
-            await self._process_successful_qr_payment(qr_payment_record, webhook_data)
-        elif status == "overpaid":
-            await self._process_overpayment(qr_payment_record, webhook_data)
-        elif status == "underpaid":
-            await self._process_underpayment(qr_payment_record, webhook_data)
-        
-        return {"status": "processed", "payment_status": status}
+        """Process SEAPay webhook for bank transfer notifications using new payment integration system"""
+        try:
+            # Import here to avoid circular dependency
+            from app.services.payment_integration_service import PaymentIntegrationService
+            from app.schemas.payment_integration import WebhookPayload
+            
+            # Create payment integration service
+            payment_service = PaymentIntegrationService(self.db, self.redis_client)
+            
+            # Convert webhook data to our expected format
+            if "data" in webhook_data:
+                # Legacy format - extract from data
+                payload_data = {
+                    "id": webhook_data["data"]["transaction_id"],
+                    "transferAmount": float(webhook_data["data"]["amount"]),
+                    "accountNumber": webhook_data["data"]["account_number"],
+                    "gateway": webhook_data["data"].get("bank_code", "VCB"),
+                    "content": webhook_data["data"]["content"],
+                    "transactionDate": webhook_data["data"]["transaction_date"],
+                    "transferType": "in",
+                    "referenceCode": webhook_data["data"].get("reference_code"),
+                    "description": webhook_data["data"].get("description")
+                }
+            else:
+                # Direct format
+                payload_data = webhook_data
+            
+            # Create webhook payload object
+            webhook_payload = WebhookPayload(**payload_data)
+            
+            # Process using payment integration service
+            result = await payment_service.process_webhook_payload(webhook_payload)
+            
+            return {
+                "status": "processed", 
+                "payment_status": result.get("verification_status", "unknown"),
+                "transaction_id": result.get("transaction_id"),
+                "message": result.get("message", "Payment processed")
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing webhook: {str(e)}")
+            # Return error response
+            return {
+                "status": "error",
+                "payment_status": "failed", 
+                "message": f"Webhook processing failed: {str(e)}"
+            }
+    
+    async def _process_legacy_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, str]:
+        """Fallback legacy webhook processing"""
+        try:
+            # Basic webhook logging for fallback
+            transaction_id = webhook_data.get("data", {}).get("transaction_id", webhook_data.get("id", "unknown"))
+            
+            return {
+                "status": "received",
+                "payment_status": "pending",
+                "transaction_id": transaction_id,
+                "message": "Webhook received but requires manual processing"
+            }
+        except Exception as e:
+            logger.error(f"Error in legacy webhook processing: {str(e)}")
+            return {
+                "status": "error",
+                "payment_status": "failed",
+                "message": str(e)
+            }
 
     async def get_qr_payment_status(self, qr_payment_id: UUID) -> QRStatusResponse:
         """Get QR payment status"""
@@ -645,8 +875,9 @@ class BillingServiceEnhanced:
         total_invoiced = sum(Decimal(inv["total_amount"]) for inv in invoices.data)
         total_collected = sum(Decimal(pay["amount"]) for pay in payments.data if not pay["is_refund"])
         total_refunded = sum(Decimal(pay["amount"]) for pay in payments.data if pay["is_refund"])
-        total_pending = sum(Decimal(inv["balance_due"]) for inv in invoices.data)
-        total_overdue = sum(Decimal(inv["balance_due"]) for inv in invoices.data 
+        # Calculate balance_due as total_amount - paid_amount
+        total_pending = sum(Decimal(inv["total_amount"]) - Decimal(inv.get("paid_amount", 0)) for inv in invoices.data)
+        total_overdue = sum(Decimal(inv["total_amount"]) - Decimal(inv.get("paid_amount", 0)) for inv in invoices.data 
                           if inv["status"] == "overdue")
         
         collection_rate = (float(total_collected) / float(total_invoiced)) * 100 if total_invoiced > 0 else 0
@@ -696,9 +927,21 @@ class BillingServiceEnhanced:
         return result.data[0]
 
     async def _calculate_deposit_amount(self, booking: Dict[str, Any], calculation: DepositCalculation) -> Decimal:
-        """Calculate deposit amount based on rules"""
+        """Calculate deposit amount based on rules or use actual deposit from booking"""
         total_amount = Decimal(booking.get("total_amount", 0))
         
+        # Check for actual deposit amount in booking data
+        # The database field is 'paid_amount' but it might also be passed as 'deposit_paid'
+        deposit_paid = booking.get("paid_amount") or booking.get("deposit_paid")
+        if deposit_paid and Decimal(str(deposit_paid)) > 0:
+            # Use the actual deposit amount from booking (excluding tax)
+            deposit_with_tax = Decimal(str(deposit_paid))
+            # Convert from tax-inclusive to tax-exclusive amount
+            tax_rate = Decimal(str(self.vat_rate)) / 100
+            deposit_amount = deposit_with_tax / (1 + tax_rate)
+            return deposit_amount
+        
+        # If no deposit_paid in booking, fall back to calculation rules
         if calculation.override_amount:
             return calculation.override_amount
         
@@ -711,7 +954,7 @@ class BillingServiceEnhanced:
             nights = calculation.value or 2
             return total_amount / Decimal(booking.get("total_nights", 1)) * nights
         
-        return total_amount * Decimal("0.3")  # Default 30%
+        return total_amount * Decimal("0.3")  # Default 30%  # Default 30%  # Default 30%
 
     async def _generate_invoice_number(self, invoice_type: str) -> str:
         """Generate unique invoice number"""
@@ -839,14 +1082,32 @@ class BillingServiceEnhanced:
                 .execute()
 
     async def _check_booking_payment_completion(self, booking_id: UUID):
-        """Check if booking is fully paid and update status"""
+        """Check if booking payment meets requirements and update status"""
         summary = await self.get_booking_payment_summary(booking_id)
         
+        # Get booking details to check deposit requirement
+        booking = self.db.table("bookings").select("*").eq("id", str(booking_id)).execute()
+        if not booking.data:
+            return
+        
+        booking_data = booking.data[0]
+        deposit_amount = Decimal(str(booking_data.get("deposit_amount", 0)))
+        total_paid = Decimal(str(summary.payment_summary.total_paid))
+        
+        # Update booking status based on payment (removed payment_status field updates)
         if summary.payment_summary.is_fully_paid:
+            # Fully paid - can be checked in directly
             self.db.table("bookings")\
-                .update({"status": "fully_paid"})\
+                .update({"status": "confirmed"})\
                 .eq("id", str(booking_id))\
                 .execute()
+        elif deposit_amount > 0 and total_paid >= deposit_amount:
+            # Deposit paid - confirmed but needs room assignment
+            self.db.table("bookings")\
+                .update({"status": "confirmed"})\
+                .eq("id", str(booking_id))\
+                .execute()
+        # Note: No need to update status for partial payments - keep as "pending"
 
     async def _process_successful_qr_payment(self, qr_payment: Dict[str, Any], webhook_data: Dict[str, Any]):
         """Process successful QR payment"""
@@ -937,7 +1198,7 @@ class BillingServiceEnhanced:
             discount_reason=invoice_data["discount_reason"],
             total_amount=Decimal(invoice_data["total_amount"]),
             paid_amount=Decimal(invoice_data.get("paid_amount", 0)),
-            balance_due=Decimal(invoice_data.get("balance_due", invoice_data["total_amount"])),
+            balance_due=Decimal(invoice_data["total_amount"]) - Decimal(invoice_data.get("paid_amount", 0)),
             status=InvoiceStatus(invoice_data["status"]),
             invoice_date=datetime.fromisoformat(invoice_data["invoice_date"]).date(),
             due_date=datetime.fromisoformat(invoice_data["due_date"]).date(),
@@ -957,7 +1218,7 @@ class BillingServiceEnhanced:
             id=UUID(payment_data["id"]),
             payment_code=payment_data["payment_code"],
             invoice_id=UUID(payment_data["invoice_id"]) if payment_data["invoice_id"] else None,
-            booking_id=UUID(payment_data["booking_id"]),
+            booking_id=UUID(payment_data["booking_id"]) if payment_data["booking_id"] else None,
             amount=Decimal(payment_data["amount"]),
             currency=payment_data["currency"],
             payment_method=PaymentMethod(payment_data["payment_method"]),

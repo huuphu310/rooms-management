@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -58,10 +58,60 @@ export default function RoomAssignmentModal({
   const [isGuaranteed, setIsGuaranteed] = useState(false)
   const [validation, setValidation] = useState<AssignmentValidation | null>(null)
   const [error, setError] = useState<string | null>(null)
+  
+  // Building and floor filters
+  const [selectedBuilding, setSelectedBuilding] = useState<string>('all')
+  const [selectedFloor, setSelectedFloor] = useState<string>('all')
+  const [filteredRooms, setFilteredRooms] = useState<any[]>([])
+  
+  // Mock building data - in production this should come from API
+  const buildings = [
+    { id: 'all', name: 'All Buildings' },
+    { id: 'main', name: 'Main Building' },
+    { id: 'annex', name: 'Annex Building' },
+    { id: 'garden', name: 'Garden Wing' }
+  ]
+  
+  // Generate floor options based on selected building
+  const getFloorOptions = () => {
+    const floors = [{ value: 'all', label: 'All Floors' }]
+    if (selectedBuilding === 'main') {
+      floors.push(
+        { value: '1', label: 'Floor 1' },
+        { value: '2', label: 'Floor 2' },
+        { value: '3', label: 'Floor 3' },
+        { value: '4', label: 'Floor 4' }
+      )
+    } else if (selectedBuilding === 'annex') {
+      floors.push(
+        { value: '1', label: 'Floor 1' },
+        { value: '2', label: 'Floor 2' }
+      )
+    } else if (selectedBuilding === 'garden') {
+      floors.push(
+        { value: '0', label: 'Ground Floor' },
+        { value: '1', label: 'Floor 1' }
+      )
+    } else {
+      // All buildings - show all possible floors
+      floors.push(
+        { value: '0', label: 'Ground Floor' },
+        { value: '1', label: 'Floor 1' },
+        { value: '2', label: 'Floor 2' },
+        { value: '3', label: 'Floor 3' },
+        { value: '4', label: 'Floor 4' }
+      )
+    }
+    return floors
+  }
 
   useEffect(() => {
     if (isOpen) {
       loadAvailableRooms()
+      // Reset filters when opening
+      setSelectedBuilding('all')
+      setSelectedFloor('all')
+      setSelectedRoomId('')
     }
   }, [isOpen, bookingDetails])
 
@@ -70,6 +120,38 @@ export default function RoomAssignmentModal({
       validateAssignment()
     }
   }, [selectedRoomId])
+  
+  // Filter rooms based on building and floor selection
+  useEffect(() => {
+    if (availableRooms?.available_rooms) {
+      let filtered = [...availableRooms.available_rooms]
+      
+      // Apply building filter
+      if (selectedBuilding !== 'all') {
+        filtered = filtered.filter(room => {
+          // Map room numbers to buildings based on numbering convention
+          const roomNumber = room.room_number
+          if (selectedBuilding === 'main' && roomNumber.startsWith('1')) return true
+          if (selectedBuilding === 'main' && roomNumber.startsWith('2')) return true
+          if (selectedBuilding === 'annex' && roomNumber.startsWith('3')) return true
+          if (selectedBuilding === 'garden' && roomNumber.startsWith('G')) return true
+          return false
+        })
+      }
+      
+      // Apply floor filter
+      if (selectedFloor !== 'all') {
+        filtered = filtered.filter(room => room.floor === parseInt(selectedFloor))
+      }
+      
+      setFilteredRooms(filtered)
+    }
+  }, [availableRooms, selectedBuilding, selectedFloor])
+  
+  // Reset floor selection when building changes
+  useEffect(() => {
+    setSelectedFloor('all')
+  }, [selectedBuilding])
 
   const loadAvailableRooms = async () => {
     try {
@@ -172,6 +254,10 @@ export default function RoomAssignmentModal({
             <Home className="h-5 w-5" />
             Assign Room - {bookingDetails.booking_code}
           </DialogTitle>
+          <DialogDescription>
+            Assign a room to booking {bookingDetails.booking_code} for {bookingDetails.guest_name}. 
+            Select a building, floor, and available room for the stay period.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
@@ -231,20 +317,80 @@ export default function RoomAssignmentModal({
             </Alert>
           )}
 
-          {/* Room Selection */}
+          {/* Room Selection with Filters */}
           <div className="space-y-4">
+            {/* Building and Floor Filters */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="building-select">Building</Label>
+                <Select
+                  value={selectedBuilding}
+                  onValueChange={setSelectedBuilding}
+                  disabled={loading}
+                >
+                  <SelectTrigger id="building-select" className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buildings.map((building) => (
+                      <SelectItem key={building.id} value={building.id}>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span>{building.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="floor-select">Floor</Label>
+                <Select
+                  value={selectedFloor}
+                  onValueChange={setSelectedFloor}
+                  disabled={loading || selectedBuilding === 'all'}
+                >
+                  <SelectTrigger id="floor-select" className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getFloorOptions().map((floor) => (
+                      <SelectItem key={floor.value} value={floor.value}>
+                        {floor.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            {/* Available Rooms Count */}
+            {filteredRooms.length > 0 && (
+              <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300">
+                    {filteredRooms.length} room{filteredRooms.length !== 1 ? 's' : ''} available
+                    {selectedBuilding !== 'all' && ` in ${buildings.find(b => b.id === selectedBuilding)?.name}`}
+                    {selectedFloor !== 'all' && ` on Floor ${selectedFloor}`}
+                  </span>
+                </div>
+              </div>
+            )}
+            
             <div>
               <Label htmlFor="room-select">Select Room</Label>
               <Select
                 value={selectedRoomId}
                 onValueChange={setSelectedRoomId}
-                disabled={loading}
+                disabled={loading || filteredRooms.length === 0}
               >
                 <SelectTrigger id="room-select" className="mt-2">
-                  <SelectValue placeholder="Choose an available room..." />
+                  <SelectValue placeholder={filteredRooms.length === 0 ? "No rooms available with current filters" : "Choose an available room..."} />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableRooms?.rooms.map((room) => (
+                  {filteredRooms.map((room) => (
                     <SelectItem key={room.room_id} value={room.room_id}>
                       <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-2">
@@ -257,13 +403,13 @@ export default function RoomAssignmentModal({
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {room.features.map((feature, idx) => (
+                          {room.features?.map((feature, idx) => (
                             <Badge key={idx} variant="secondary" className="text-xs">
                               {feature}
                             </Badge>
                           ))}
                           <span className="text-sm font-medium">
-                            {formatCurrency(room.rate_per_night)}
+                            {formatCurrency(room.base_rate)}
                           </span>
                         </div>
                       </div>

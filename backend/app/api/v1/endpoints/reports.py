@@ -6,8 +6,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import io
 import json
 
-from app.core.database import get_supabase_service
-from app.api.deps import get_current_user
+from app.api.deps import (
+    get_current_user,
+    UserScopedDbDep,
+    AuthenticatedDbDep
+)
 from app.services.report_service import ReportService
 
 router = APIRouter()
@@ -18,9 +21,9 @@ router = APIRouter()
 
 @router.get("/daily-operations")
 async def get_daily_operations_report(
-    report_date: Optional[date] = Query(None, description="Report date (default: today)"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    report_date: Optional[date] = Query(None, description="Report date (default: today)")
 ):
     """
     Generate comprehensive daily operational summary
@@ -38,11 +41,11 @@ async def get_daily_operations_report(
 
 @router.get("/occupancy-analysis")
 async def get_occupancy_analysis(
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
-    group_by: str = Query("day", description="Grouping: day, week, or month"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    group_by: str = Query("day", description="Grouping: day, week, or month")
 ):
     """
     Generate detailed occupancy analysis with trends and forecasting
@@ -59,9 +62,9 @@ async def get_occupancy_analysis(
 
 @router.get("/housekeeping")
 async def get_housekeeping_report(
-    report_date: Optional[date] = Query(None, description="Report date (default: today)"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    report_date: Optional[date] = Query(None, description="Report date (default: today)")
 ):
     """
     Generate housekeeping operations report
@@ -82,11 +85,11 @@ async def get_housekeeping_report(
 
 @router.get("/revenue")
 async def get_revenue_report(
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
-    period: str = Query("daily", description="Period: daily, monthly, or yearly"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    period: str = Query("daily", description="Period: daily, monthly, or yearly")
 ):
     """
     Generate comprehensive revenue analysis
@@ -103,9 +106,9 @@ async def get_revenue_report(
 
 @router.get("/profit-loss")
 async def get_profit_loss_statement(
-    period: str = Query(..., description="Period in YYYY-MM format"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    period: str = Query(..., description="Period in YYYY-MM format")
 ):
     """
     Generate P&L statement with expense analysis
@@ -122,9 +125,9 @@ async def get_profit_loss_statement(
 
 @router.get("/accounts-receivable")
 async def get_accounts_receivable(
-    as_of_date: Optional[date] = Query(None, description="As of date (default: today)"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    as_of_date: Optional[date] = Query(None, description="As of date (default: today)")
 ):
     """
     Generate accounts receivable aging report
@@ -145,9 +148,9 @@ async def get_accounts_receivable(
 
 @router.get("/guest-demographics")
 async def get_guest_demographics(
-    period: str = Query(..., description="Period in YYYY-MM format"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    period: str = Query(..., description="Period in YYYY-MM format")
 ):
     """
     Generate guest demographics analysis
@@ -164,9 +167,9 @@ async def get_guest_demographics(
 
 @router.get("/guest-satisfaction")
 async def get_guest_satisfaction(
-    period: str = Query(..., description="Period in YYYY-MM format"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
+    period: str = Query(..., description="Period in YYYY-MM format")
 ):
     """
     Generate guest satisfaction analysis
@@ -187,10 +190,10 @@ async def get_guest_satisfaction(
 
 @router.get("/staff-performance")
 async def get_staff_performance(
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user),
     period: str = Query(..., description="Period in YYYY-MM format"),
-    department: str = Query("all", description="Department filter"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(get_current_user)
+    department: str = Query("all", description="Department filter")
 ):
     """
     Generate staff performance metrics
@@ -207,7 +210,7 @@ async def get_staff_performance(
 
 @router.get("/kpi-dashboard")
 async def get_kpi_dashboard(
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(get_current_user)
 ):
     """

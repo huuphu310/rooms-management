@@ -5,9 +5,10 @@ import {
   Gift,
   Users,
   Search,
-  RefreshCw,
+  Undo2,
   Receipt,
-  Package
+  Package,
+  Ticket
 } from 'lucide-react';
 
 interface QuickActionsProps {
@@ -20,14 +21,14 @@ export default function QuickActions({ onAction }: QuickActionsProps) {
     { id: 'calculator', label: 'Calculator', icon: Calculator, color: 'text-blue-600' },
     { id: 'customer', label: 'Customer', icon: Users, color: 'text-purple-600' },
     { id: 'search', label: 'Search', icon: Search, color: 'text-gray-600' },
-    { id: 'return', label: 'Return', icon: RefreshCw, color: 'text-orange-600' },
+    { id: 'return', label: 'Return', icon: Undo2, color: 'text-orange-600' },
     { id: 'receipt', label: 'Receipt', icon: Receipt, color: 'text-indigo-600' },
     { id: 'products', label: 'Products', icon: Package, color: 'text-pink-600' },
-    { id: 'voucher', label: 'Voucher', icon: Gift, color: 'text-red-600' }
+    { id: 'voucher', label: 'Voucher', icon: Ticket, color: 'text-red-600' }
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-4 gap-1">
       {actions.map((action) => {
         const Icon = action.icon;
         return (
@@ -36,10 +37,10 @@ export default function QuickActions({ onAction }: QuickActionsProps) {
             variant="outline"
             size="sm"
             onClick={() => onAction(action.id)}
-            className="flex flex-col items-center py-3"
+            className="flex flex-col items-center justify-center py-2 h-12 min-h-12 text-xs px-1"
           >
-            <Icon className={`h-5 w-5 mb-1 ${action.color}`} />
-            <span className="text-xs">{action.label}</span>
+            <Icon className={`h-4 w-4 mb-0.5 ${action.color}`} />
+            <span className="text-[10px] text-center leading-tight">{action.label}</span>
           </Button>
         );
       })}

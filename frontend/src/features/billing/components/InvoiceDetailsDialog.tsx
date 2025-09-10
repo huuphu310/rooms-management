@@ -204,6 +204,7 @@ export function InvoiceDetailsDialog({
         onOpenChange={setShowQRDialog}
         invoiceId={invoice.id}
         invoiceNumber={invoice.invoice_number}
+        bookingId={invoice.booking_id}
         amount={invoice.balance_due}
         onPaymentCreated={() => {
           onInvoiceUpdated()

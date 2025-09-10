@@ -9,6 +9,7 @@ import re
 class CustomerType(str, Enum):
     INDIVIDUAL = "individual"
     COMPANY = "company"
+    CORPORATE = "corporate"  # Added to fix validation error
     GROUP = "group"
 
 

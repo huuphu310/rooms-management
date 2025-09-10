@@ -327,15 +327,25 @@ class UnassignedBooking(BaseModel):
     check_in_date: date
     check_out_date: date
     check_in_time: Optional[time] = None
+    check_out_time: Optional[time] = None
     room_type: str
     room_type_id: Optional[UUID] = None
-    is_vip: bool
+    adults: int = 1
+    children: int = 0
+    infants: int = 0
+    total_guests: int = 1
+    extra_persons: int = 0
+    extra_person_charge: float = 0
+    extra_bed: bool = False
+    extra_bed_charge: float = 0
     special_requests: Optional[str] = None
+    internal_notes: Optional[Dict[str, Any]] = None
+    is_vip: bool = False
     hours_until_checkin: Optional[float] = None
     alert_level: AlertSeverity
-    available_rooms: List[str] = []
     total_amount: Decimal
     paid_amount: Decimal
+    booking_status: str = 'confirmed'
 
 
 class UnassignedBookingsResponse(BaseModel):

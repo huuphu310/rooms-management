@@ -70,15 +70,15 @@ export default function AllocationDashboard({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {dashboardData.occupancy_rate}%
+              {dashboardData.summary?.occupancy_rate || dashboardData.occupancy_rate || 0}%
             </div>
             <p className="text-xs text-muted-foreground">
-              {dashboardData.occupied_rooms} of {dashboardData.total_rooms} rooms occupied
+              {dashboardData.summary?.occupied_rooms || dashboardData.occupied_rooms || 0} of {dashboardData.summary?.total_rooms || dashboardData.total_rooms || 0} rooms occupied
             </p>
             <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
               <div 
                 className="bg-blue-600 h-2 rounded-full"
-                style={{ width: `${dashboardData.occupancy_rate}%` }}
+                style={{ width: `${dashboardData.summary?.occupancy_rate || dashboardData.occupancy_rate || 0}%` }}
               ></div>
             </div>
           </CardContent>
@@ -91,18 +91,23 @@ export default function AllocationDashboard({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">
-              {dashboardData.unassigned_summary.total_unassigned}
+              {dashboardData.unassigned_summary?.total_unassigned || dashboardData.alerts?.unassigned_today || dashboardData.summary?.unassigned_bookings || 0}
             </div>
             <div className="flex gap-2 mt-2">
-              {dashboardData.unassigned_summary.critical > 0 && (
+              {dashboardData.unassigned_summary?.critical ? (
                 <Badge variant="destructive" className="text-xs">
                   {dashboardData.unassigned_summary.critical} Critical
                 </Badge>
-              )}
-              {dashboardData.unassigned_summary.warning > 0 && (
+              ) : null}
+              {dashboardData.unassigned_summary?.warning ? (
                 <Badge className="bg-orange-100 text-orange-800 text-xs">
                   {dashboardData.unassigned_summary.warning} Warning
                 </Badge>
+              ) : null}
+              {dashboardData.alerts?.message && (
+                <p className="text-xs text-muted-foreground">
+                  {dashboardData.alerts.message}
+                </p>
               )}
             </div>
           </CardContent>
@@ -115,7 +120,9 @@ export default function AllocationDashboard({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {dashboardData.today_arrivals}
+              {typeof dashboardData.today_arrivals === 'object' 
+                ? dashboardData.today_arrivals.count 
+                : dashboardData.today_arrivals}
             </div>
             <p className="text-xs text-muted-foreground">
               Expected check-ins today
@@ -130,7 +137,9 @@ export default function AllocationDashboard({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-purple-600">
-              {dashboardData.today_departures}
+              {typeof dashboardData.today_departures === 'object' 
+                ? dashboardData.today_departures.count 
+                : dashboardData.today_departures}
             </div>
             <p className="text-xs text-muted-foreground">
               Expected check-outs today
@@ -150,28 +159,32 @@ export default function AllocationDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {dashboardData.recent_arrivals.length > 0 ? (
-              <div className="space-y-3">
-                {dashboardData.recent_arrivals.map((arrival, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{arrival.guest_name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Room {arrival.room_number}
-                      </p>
+            {(() => {
+              const arrivals = dashboardData.recent_arrivals || 
+                (typeof dashboardData.today_arrivals === 'object' ? dashboardData.today_arrivals.list : []);
+              return arrivals && arrivals.length > 0 ? (
+                <div className="space-y-3">
+                  {arrivals.slice(0, 5).map((arrival: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{arrival.guest_name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Room {arrival.room_number}
+                        </p>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {arrival.time || arrival.check_in_time || 'TBD'}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {arrival.time}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
+                  ))}
+                </div>
+              ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <Users className="mx-auto h-8 w-8 mb-2 opacity-50" />
                 <p>No arrivals yet today</p>
               </div>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -184,28 +197,32 @@ export default function AllocationDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {dashboardData.upcoming_departures.length > 0 ? (
-              <div className="space-y-3">
-                {dashboardData.upcoming_departures.map((departure, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{departure.guest_name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Room {departure.room_number}
-                      </p>
+            {(() => {
+              const departures = dashboardData.upcoming_departures || 
+                (typeof dashboardData.today_departures === 'object' ? dashboardData.today_departures.list : []);
+              return departures && departures.length > 0 ? (
+                <div className="space-y-3">
+                  {departures.slice(0, 5).map((departure: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{departure.guest_name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Room {departure.room_number}
+                        </p>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {departure.time || departure.check_out_time || 'TBD'}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {departure.time}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Clock className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                <p>No departures scheduled</p>
-              </div>
-            )}
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Clock className="mx-auto h-8 w-8 mb-2 opacity-50" />
+                  <p>No departures scheduled</p>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

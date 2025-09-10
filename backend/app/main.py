@@ -9,6 +9,8 @@ from app.core.database import init_database, close_database
 from app.core.redis_client import RedisClient
 from app.core.logger import setup_logger, LoggingMiddleware
 from app.core.exceptions import BaseAPIException
+from app.core.websocket import websocket_manager
+from app.middleware.security import RequestLoggingMiddleware, SecurityHeadersMiddleware
 from app.api.v1.api import api_router
 
 # Setup logger
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
+    description="API Documentation - Cache is automatically cleared when accessing /docs",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
@@ -54,7 +57,17 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Add logging middleware
+# Add security middleware (order matters - security headers first)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Add request logging and audit middleware
+app.add_middleware(
+    RequestLoggingMiddleware,
+    log_body=False,  # Set to True for debugging (careful with PII)
+    log_sensitive_paths=True
+)
+
+# Add existing logging middleware
 app.middleware("http")(LoggingMiddleware(app))
 
 # Exception handlers
@@ -89,6 +102,68 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# WebSocket endpoint
+from fastapi import WebSocket, WebSocketDisconnect
+import uuid
+import json
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates"""
+    connection_id = str(uuid.uuid4())
+    
+    try:
+        await websocket_manager.connection_manager.connect(websocket, connection_id)
+        
+        while True:
+            # Wait for client messages
+            data = await websocket.receive_text()
+            
+            try:
+                message = json.loads(data)
+                message_type = message.get('type')
+                
+                if message_type == 'join_invoice':
+                    invoice_code = message.get('invoice_code')
+                    if invoice_code:
+                        websocket_manager.connection_manager.join_invoice_room(connection_id, invoice_code)
+                        await websocket_manager.connection_manager.send_personal_message({
+                            'type': 'joined_invoice',
+                            'invoice_code': invoice_code
+                        }, websocket)
+                
+                elif message_type == 'leave_invoice':
+                    invoice_code = message.get('invoice_code')
+                    if invoice_code:
+                        websocket_manager.connection_manager.leave_invoice_room(connection_id, invoice_code)
+                        await websocket_manager.connection_manager.send_personal_message({
+                            'type': 'left_invoice',
+                            'invoice_code': invoice_code
+                        }, websocket)
+                
+                elif message_type == 'ping':
+                    await websocket_manager.connection_manager.send_personal_message({
+                        'type': 'pong'
+                    }, websocket)
+                
+            except json.JSONDecodeError:
+                await websocket_manager.connection_manager.send_personal_message({
+                    'type': 'error',
+                    'message': 'Invalid JSON format'
+                }, websocket)
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {str(e)}")
+                await websocket_manager.connection_manager.send_personal_message({
+                    'type': 'error', 
+                    'message': 'Message processing error'
+                }, websocket)
+                
+    except WebSocketDisconnect:
+        websocket_manager.connection_manager.disconnect(connection_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        websocket_manager.connection_manager.disconnect(connection_id)
 
 # Root endpoint
 @app.get("/")

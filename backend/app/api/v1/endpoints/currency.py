@@ -6,8 +6,9 @@ from app.api.deps import (
     CurrentUser,
     SupabaseClient,
     Cache,
-    require_permission
-)
+    require_permission,
+    UserScopedDbDep,
+    AuthenticatedDbDep)
 from app.schemas.currency import (
     CurrencyConfig,
     CurrencyConfigUpdate,

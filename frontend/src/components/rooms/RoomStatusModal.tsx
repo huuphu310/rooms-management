@@ -53,25 +53,33 @@ const statusOptions = [
   { value: 'occupied', label: 'Đang ở', color: 'bg-red-500' },
   { value: 'cleaning', label: 'Đang dọn', color: 'bg-yellow-500' },
   { value: 'maintenance', label: 'Bảo trì', color: 'bg-orange-500' },
-  { value: 'reserved', label: 'Đã đặt', color: 'bg-blue-500' },
+  { value: 'booked', label: 'Đã đặt', color: 'bg-blue-500' },
+  { value: 'blocked', label: 'Đã khóa', color: 'bg-gray-500' },
 ];
 
 const statusTransitions: Record<string, string[]> = {
-  available: ['occupied', 'maintenance', 'reserved'],
-  occupied: ['cleaning'],
+  available: ['booked', 'occupied', 'maintenance', 'blocked'],
+  booked: ['occupied', 'available'],
+  occupied: ['cleaning', 'available'],
   cleaning: ['available', 'maintenance'],
-  maintenance: ['available'],
-  reserved: ['occupied', 'available'],
+  maintenance: ['available', 'blocked'],
+  blocked: ['available', 'maintenance'],
 };
 
 const transitionMessages: Record<string, Record<string, string>> = {
   available: {
+    booked: 'Phòng sẽ được giữ cho khách đã đặt trước',
     occupied: 'Phòng sẽ được chuyển sang trạng thái "Đang ở" khi khách check-in',
     maintenance: 'Phòng sẽ được chuyển sang bảo trì và không thể đặt',
-    reserved: 'Phòng sẽ được giữ cho khách đã đặt trước',
+    blocked: 'Phòng sẽ bị khóa và không thể sử dụng',
+  },
+  booked: {
+    occupied: 'Khách đã check-in vào phòng đặt trước',
+    available: 'Hủy đặt phòng và chuyển về trạng thái trống',
   },
   occupied: {
     cleaning: 'Phòng sẽ được dọn dẹp sau khi khách check-out',
+    available: 'Khách đã check-out, phòng trống',
   },
   cleaning: {
     available: 'Phòng đã được dọn dẹp và sẵn sàng cho khách mới',
@@ -79,10 +87,11 @@ const transitionMessages: Record<string, Record<string, string>> = {
   },
   maintenance: {
     available: 'Phòng đã hoàn tất bảo trì và sẵn sàng sử dụng',
+    blocked: 'Phòng cần khóa để bảo trì dài hạn',
   },
-  reserved: {
-    occupied: 'Khách đã check-in vào phòng đặt trước',
-    available: 'Hủy đặt phòng và chuyển về trạng thái trống',
+  blocked: {
+    available: 'Mở khóa phòng và sẵn sàng sử dụng',
+    maintenance: 'Chuyển phòng sang bảo trì',
   },
 };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,9 +42,16 @@ export default function InvoiceManagement() {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  const hasLoadedRef = useRef(false)
+  const lastSearchParamsRef = useRef<string>('')
 
   useEffect(() => {
-    loadInvoices()
+    const searchParamsKey = JSON.stringify(searchParams)
+    if (!hasLoadedRef.current || lastSearchParamsRef.current !== searchParamsKey) {
+      hasLoadedRef.current = true
+      lastSearchParamsRef.current = searchParamsKey
+      loadInvoices()
+    }
   }, [searchParams])
 
   const loadInvoices = async () => {

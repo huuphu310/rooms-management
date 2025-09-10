@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
     SUPABASE_SERVICE_KEY: str
+    SUPABASE_JWT_SECRET: Optional[str] = None  # JWT secret for verifying tokens
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
@@ -46,6 +47,26 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
+    
+    # JWT Settings for Production
+    JWT_JWKS_URL: Optional[str] = None
+    JWT_AUD: str = "authenticated"
+    JWT_ISS: Optional[str] = None
+    JWT_ALGORITHM: str = "RS256"
+    JWT_VERIFY_SIGNATURE: bool = True
+    JWT_LEEWAY: int = 120  # 2 minutes clock skew tolerance
+    
+    @validator("JWT_JWKS_URL", pre=True, always=True)
+    def set_jwt_jwks_url(cls, v, values):
+        if not v and values.get("SUPABASE_URL"):
+            return f"{values['SUPABASE_URL']}/auth/v1/jwks"
+        return v
+        
+    @validator("JWT_ISS", pre=True, always=True)
+    def set_jwt_issuer(cls, v, values):
+        if not v and values.get("SUPABASE_URL"):
+            return f"{values['SUPABASE_URL']}/auth/v1"
+        return v
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
@@ -85,8 +106,23 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = 'utf-8'
         case_sensitive = True
         extra = "ignore"  # Allow extra fields in .env
+        
+        # Load development overrides if they exist
+        @classmethod
+        def customise_sources(
+            cls,
+            init_settings,
+            env_settings,
+            file_secret_settings,
+        ):
+            return (
+                init_settings,
+                env_settings,
+                file_secret_settings,
+            )
 
 # Create global settings instance
 settings = Settings()

@@ -1,10 +1,20 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Quick reference guide for coding agents working on this Room Booking System.**
+
+## ⚡ TL;DR - Most Important Rules
+
+1. **Use Supabase syntax**, NOT SQLAlchemy
+2. **Decode JWT directly** - Supabase auth.get_user() hangs!
+3. **API pattern**: `/api/v1/{module}/{action}` (no duplicate /api)
+4. **All IDs are UUID**, dates are ISO 8601, money is Decimal(2)
+5. **Error format is sacred** - never change it
+6. **80% test coverage minimum**
+7. **Update docs BEFORE refactoring**
 
 ## Project Overview
 
-This is a comprehensive Homestay/Small Hotel Management System designed for establishments with 5-30 rooms. The system optimizes operations, manages bookings, services, and finances professionally.
+Homestay/Small Hotel Management System for 5-30 room establishments. Manages bookings, services, and finances.
 
 ## Tech Stack
 
@@ -50,192 +60,96 @@ frontend/
 │   └── pages/             # Page components
 └── wrangler.toml          # Cloudflare Workers config
 ```
-## Development Rules
+## Critical Rules (MUST FOLLOW)
 
-### General
-- Update existing docs (Markdown files) in `./docs` directory before any code refactoring
-- Add new docs (Markdown files) to `./docs` directory after new feature implementation (do not create duplicated docs)
-- use `context7` mcp tools for docs of plugins/packages
-- use `senera` mcp tools for semantic retrieval and editing capabilities
-- uss `supabase` mcp tools for access supabase
+### 1. Documentation
+- **BEFORE refactoring**: Update existing docs in `./docs`
+- **AFTER features**: Add new docs (no duplicates)
+- **MCP Tools**:
+  - `context7`: Package/plugin docs
+  - `serena`: Semantic code search/edit
+  - `supabase`: Database operations
 
-### Code Quality Guidelines
-- Don't be too harsh on code linting and formatting
-- Prioritize functionality and readability over strict style enforcement
-- Use reasonable code quality standards that enhance developer productivity
-- Allow for minor style variations when they improve code clarity
+### 2. Code Quality
+- Functionality > Perfect formatting
+- Readability > Strict linting
+- Allow minor style variations for clarity
 
 
-## Key Commands
+### 3. Common Errors to Avoid (Based on Production Issues)
 
-### Backend Development
-```bash
-# Install dependencies
-pip install -r requirements.txt
+#### Authentication
+```python
+# ❌ WRONG: Using Supabase auth.get_user() - it hangs!
+response = auth.get_user(token)  # This will timeout
 
-# Run development server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Run tests
-pytest tests/
-
-# Run with Docker
-docker-compose up
-
-# Database migrations (if using Alembic)
-alembic upgrade head
-
-# Format Python code
-black app/
-
-# Lint Python code
-pylint app/
+# ✅ CORRECT: Decode JWT directly with timeout
+import jwt
+payload = jwt.decode(token, options={"verify_signature": False})
+user_id = payload.get("sub")
 ```
 
-### Frontend Development
-```bash
-# Install dependencies
-npm install
+#### Database Operations
+```python
+# ❌ WRONG: SQLAlchemy syntax
+db.query(Model).filter(Model.field == value).first()
 
-# Run development server
-npm run dev
+# ✅ CORRECT: Supabase client syntax
+db.table("table_name").select("*").eq("field", value).execute()
 
-# Build for production
-npm run build
+# ❌ WRONG: Missing required fields
+db.table("pos_shifts").insert({"opened_by": user_id})  # Missing shift_date!
 
-# Deploy to Cloudflare Workers
-npm run deploy
-
-# Run tests
-npm test
-
-# Type checking
-npm run type-check
-
-# Lint and format
-npm run lint
-npm run format
+# ✅ CORRECT: Include ALL required fields
+db.table("pos_shifts").insert({
+    "shift_date": date.today().isoformat(),  # Required!
+    "opened_by": str(user_id),
+    "status": "open"
+})
 ```
 
-## Architecture Overview
+#### API Endpoints
+```javascript
+// ❌ WRONG: Duplicate /api prefix
+await api.post('/api/pos/shifts/open')  // Results in /api/v1/api/pos/...
 
-### Database Schema
-The system uses PostgreSQL (via Supabase) with the following core tables:
-- **rooms**: Physical room inventory with status tracking
-- **room_types**: Room categories with pricing
-- **bookings**: Reservation management with full lifecycle tracking
-- **customers**: Guest profiles with preferences and history
-- **products**: Inventory items and services
-- **invoices**: Billing and payment records
-- **pos_transactions**: Point of sale operations
-- **user_profiles**: Staff accounts with role-based permissions
+// ✅ CORRECT: Clean URL
+await api.post('/pos/shifts/open')  // Results in /api/v1/pos/...
+```
+
+#### TypeScript Imports
+```typescript
+// ❌ WRONG: Type-only import for runtime enum
+import type { CustomerType } from '@/types/pos';
+
+// ✅ CORRECT: Separate runtime from types
+import { CustomerType, PaymentMethod } from '@/types/pos';  // Runtime enums
+import type { Transaction, Shift } from '@/types/pos';      // Types only
+```
+
+
+## Mandatory Conventions
 
 ### API Structure
-The API follows RESTful principles with:
-- JWT-based authentication via Supabase Auth
-- Role-based access control (RBAC)
-- Standardized response formats
-- Comprehensive error handling
-- Request validation using Pydantic schemas
+```python
+# URL Pattern (ALWAYS use this)
+"/api/v1/{module}/{action}"
 
-### State Management
-- **Backend**: Redis for session management and caching
-- **Frontend**: Zustand for global state, TanStack Query for server state
+# IDs (ALWAYS UUID)
+uuid.uuid4()
 
-### Key Business Logic
+# Query Parameters
+"?page=1&limit=20"         # Pagination
+"?sort_by=field&order=asc" # Sorting
 
-1. **Booking Flow**:
-   - Availability checking with date range validation
-   - Dynamic pricing (weekday/weekend rates)
-   - Deposit management
-   - Check-in/check-out processing
-   - Room status transitions
+# Dates (ALWAYS ISO 8601)
+"2025-08-23"  # YYYY-MM-DD
 
-2. **Inventory Management**:
-   - Stock tracking with reorder points
-   - Purchase order management
-   - FIFO/weighted average valuation
-
-3. **Financial Operations**:
-   - Guest folio management
-   - POS integration
-   - Multiple payment methods
-   - Invoice generation
-   - Refund processing
-
-## Environment Variables
-
-Required environment variables (.env file):
-```
-# Supabase
-SUPABASE_URL=
-SUPABASE_KEY=
-SUPABASE_SERVICE_KEY=
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# Cloudflare R2
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY=
-R2_SECRET_KEY=
-R2_BUCKET_NAME=
-
-# SMTP
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_FROM=
-
-# Security
-SECRET_KEY=
-ACCESS_TOKEN_EXPIRE_MINUTES=15
-REFRESH_TOKEN_EXPIRE_DAYS=7
+# Money (ALWAYS Decimal with 2 places)
+Decimal("100.00")
 ```
 
-## API Conventions
-
-- All endpoints follow `/api/v1/{module}/{action}` pattern
-- Use UUID for all entity IDs
-- Pagination: `?page=1&limit=20`
-- Sorting: `?sort_by=field&order=asc`
-- Filtering: Module-specific query parameters
-- Date format: ISO 8601 (YYYY-MM-DD)
-- Money values: Store as decimal, display with proper formatting
-
-## Testing Strategy
-
-- Unit tests for business logic services
-- Integration tests for API endpoints
-- E2E tests for critical user flows
-- Minimum 80% code coverage target
-- Use pytest for backend, Jest/React Testing Library for frontend
-
-## Performance Considerations
-
-- Implement Redis caching for:
-  - Room availability queries
-  - Rate calculations
-  - Frequently accessed reference data
-- Use database indexes on frequently queried fields
-- Implement pagination for all list endpoints
-- Use TanStack Query for frontend data caching
-- Lazy load images from Cloudflare R2
-
-## Security Requirements
-
-- All API endpoints require authentication except public endpoints
-- Implement rate limiting (100 requests/minute per IP)
-- Validate and sanitize all inputs
-- Use parameterized queries to prevent SQL injection
-- Store sensitive data encrypted in database
-- Implement audit logging for all data modifications
-- Follow OWASP security best practices
-
-## Error Handling
-
-- Use consistent error response format:
+### Error Format (NEVER deviate)
 ```json
 {
   "error": {
@@ -245,6 +159,71 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
   }
 }
 ```
-- Log all errors with context
-- Return appropriate HTTP status codes
-- Implement retry logic for transient failures
+
+### Security (NON-NEGOTIABLE)
+- JWT auth on all endpoints (except public)
+- Rate limit: 100 req/min per IP
+- Parameterized queries ONLY (no string concat)
+- Input validation & sanitization
+- Encrypt sensitive data
+
+### Testing (REQUIRED)
+- Minimum 80% coverage
+- pytest (backend), Jest (frontend)
+- Test error scenarios
+
+### Performance (IMPLEMENT)
+- Redis cache: room availability, rate calculations
+- Pagination on ALL list endpoints
+- Database indexes on queried fields
+- TanStack Query (frontend caching)
+
+## Quick Debugging Guide
+
+### If Authentication Fails
+1. Check if Supabase auth is hanging → Use JWT decode directly
+2. Verify user_profiles table has the user
+3. Check role mappings are correct
+
+### If Database Operations Fail
+1. Verify using Supabase syntax, NOT SQLAlchemy
+2. Check ALL required fields are included
+3. Verify table relationships are correct
+4. Use `.execute()` at the end of queries
+
+### If API Returns 404
+1. Check for duplicate `/api` in URL
+2. Verify route registration in FastAPI
+3. Check CORS middleware is configured
+
+### If TypeScript Import Errors
+1. Separate runtime enums from type-only imports
+2. Check if value is needed at runtime vs compile-time
+
+## Commands to Remember
+
+```bash
+# Backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pytest tests/ --cov=app --cov-report=html
+
+# Frontend  
+npm run dev
+npm run build
+npm run type-check
+
+# Database
+# Check table structure
+python3 -c "from supabase import create_client; ..."
+
+# Testing endpoints
+curl -X GET "http://localhost:8000/api/v1/endpoint" \
+  -H "Authorization: Bearer <token>"
+```
+
+## When Stuck
+
+1. Check `/docs/troubleshooting/error_fixes_summary.md` for similar issues
+2. Verify you're following the conventions above
+3. Test with minimal example first
+4. Check logs for actual error (not just symptoms)

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -13,8 +14,11 @@ import { BookingList } from '@/components/bookings/BookingList'
 import { BookingForm } from '@/components/bookings/BookingForm'
 import { CheckInDialog } from '@/components/bookings/CheckInDialog'
 import { CheckOutDialog } from '@/components/bookings/CheckOutDialog'
+import { AssignRoomDialog } from '@/components/bookings/AssignRoomDialog'
+import { CheckoutModal } from '@/features/checkout/CheckoutModal'
 import { bookingsApi, type Booking, type BookingCreate } from '@/lib/api/bookings'
 import { useQueryClient } from '@tanstack/react-query'
+import { PermissionGuard } from '@/components/auth/PermissionGuard'
 
 export default function BookingsPage() {
   const { t } = useLanguage()
@@ -26,6 +30,8 @@ export default function BookingsPage() {
   const [isCheckInDialogOpen, setIsCheckInDialogOpen] = useState(false)
   const [isCheckOutDialogOpen, setIsCheckOutDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [isAssignRoomDialogOpen, setIsAssignRoomDialogOpen] = useState(false)
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false)
 
   const handleCreateBooking = async (data: BookingCreate) => {
     try {
@@ -65,7 +71,17 @@ export default function BookingsPage() {
 
   const handleCheckOut = (booking: Booking) => {
     setSelectedBooking(booking)
-    setIsCheckOutDialogOpen(true)
+    // Use the new folio-based checkout modal for checked-in bookings
+    if (booking.status === 'checked_in') {
+      setIsCheckoutModalOpen(true)
+    } else {
+      setIsCheckOutDialogOpen(true)
+    }
+  }
+
+  const handleAssignRoom = (booking: Booking) => {
+    setSelectedBooking(booking)
+    setIsAssignRoomDialogOpen(true)
   }
 
   const handleCheckInSuccess = () => {
@@ -84,6 +100,15 @@ export default function BookingsPage() {
     queryClient.invalidateQueries({ queryKey: ['bookings'] })
   }
 
+  const handleAssignRoomSuccess = () => {
+    toast({
+      title: t('success'),
+      description: t('roomAssignedSuccessfully'),
+    })
+    queryClient.invalidateQueries({ queryKey: ['bookings'] })
+    setIsAssignRoomDialogOpen(false)
+  }
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
@@ -91,10 +116,12 @@ export default function BookingsPage() {
           <h1 className="text-3xl font-bold">{t('bookings.bookingManagement')}</h1>
           <p className="text-gray-600 mt-1">{t('bookings.manageYourBookings')}</p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('bookings.newBooking')}
-        </Button>
+        <PermissionGuard module="bookings" action="create">
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('bookings.newBooking')}
+          </Button>
+        </PermissionGuard>
       </div>
 
       <BookingList
@@ -102,13 +129,22 @@ export default function BookingsPage() {
         onEditBooking={handleEditBooking}
         onCheckIn={handleCheckIn}
         onCheckOut={handleCheckOut}
+        onAssignRoom={handleAssignRoom}
       />
 
       {/* Create Booking Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent 
+          className="max-w-4xl max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{t('bookings.createNewBooking')}</DialogTitle>
+            <DialogDescription>
+              {t('bookings.fillInTheFormBelowToCreateANewBooking')}
+            </DialogDescription>
           </DialogHeader>
           <BookingForm
             onSubmit={handleCreateBooking}
@@ -123,6 +159,9 @@ export default function BookingsPage() {
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t('bookings.bookingDetails')}</DialogTitle>
+              <DialogDescription>
+                {t('bookings.viewBookingInformation')}
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               {/* Booking Header */}
@@ -312,6 +351,29 @@ export default function BookingsPage() {
           open={isCheckOutDialogOpen}
           onClose={() => setIsCheckOutDialogOpen(false)}
           onSuccess={handleCheckOutSuccess}
+        />
+      )}
+
+      {/* Assign Room Dialog */}
+      {selectedBooking && (
+        <AssignRoomDialog
+          booking={selectedBooking}
+          open={isAssignRoomDialogOpen}
+          onClose={() => setIsAssignRoomDialogOpen(false)}
+          onSuccess={handleAssignRoomSuccess}
+        />
+      )}
+
+      {/* New Folio-based Checkout Modal */}
+      {selectedBooking && (
+        <CheckoutModal
+          bookingId={selectedBooking.id}
+          open={isCheckoutModalOpen}
+          onClose={() => setIsCheckoutModalOpen(false)}
+          onSuccess={() => {
+            setIsCheckoutModalOpen(false)
+            handleCheckOutSuccess()
+          }}
         />
       )}
     </div>

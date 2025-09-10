@@ -71,7 +71,10 @@ class BookingBase(BaseModel):
     
     # Additional Charges
     service_charges: Decimal = Field(decimal_places=2, default=Decimal("0"))
+    tax_percentage: Decimal = Field(decimal_places=2, ge=0, le=100, default=Decimal("10"))
     tax_amount: Decimal = Field(decimal_places=2, default=Decimal("0"))
+    discount_type: Optional[str] = Field(default="amount", description="Type of discount: 'percentage' or 'amount'")
+    discount_value: Decimal = Field(decimal_places=2, default=Decimal("0"), description="Discount value (percentage or fixed amount)")
     discount_amount: Decimal = Field(decimal_places=2, default=Decimal("0"))
     discount_reason: Optional[str] = None
     commission_amount: Decimal = Field(decimal_places=2, default=Decimal("0"))
@@ -98,6 +101,10 @@ class BookingBase(BaseModel):
     
     # Preferences
     preferences: Optional[Dict[str, Any]] = None
+    
+    # Currency Information
+    selected_currency: Optional[str] = Field(default="VND", description="Selected currency for pricing")
+    exchange_rate: Optional[Decimal] = Field(decimal_places=4, default=Decimal("1"), description="Exchange rate to VND at time of booking")
     
     # Group Booking Reference
     group_booking_id: Optional[UUID] = None
@@ -183,6 +190,10 @@ class Booking(BookingBase):
     payment_status: PaymentStatus = PaymentStatus.PENDING
     confirmation_sent: bool = False
     confirmation_sent_at: Optional[datetime] = None
+    
+    # Invoice info (optional, added when invoice is created)
+    invoice_id: Optional[UUID] = None
+    invoice_number: Optional[str] = None
     
     # Calculated fields
     nights: int

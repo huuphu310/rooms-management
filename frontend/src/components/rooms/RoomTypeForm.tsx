@@ -31,11 +31,16 @@ const roomTypeSchema = z.object({
   base_price: z.number().min(0, 'Base price must be positive'),
   weekend_price: z.number().min(0).optional(),
   max_occupancy: z.number().min(1).max(10),
-  min_occupancy: z.number().min(1).max(10),
+  min_occupancy: z.number().min(1).max(10), // Keep for backward compatibility
   max_adults: z.number().min(1).max(10),
   max_children: z.number().min(0).max(10),
+  // New separate occupancy fields
+  standard_adults_occupancy: z.number().min(1).max(10),
+  standard_children_occupancy: z.number().min(0).max(10),
   extra_adult_charge: z.number().min(0),
   extra_child_charge: z.number().min(0),
+  extra_single_bed_charge: z.number().min(0).optional(),
+  extra_double_bed_charge: z.number().min(0).optional(),
   size_sqm: z.number().min(0).optional(),
   min_stay_nights: z.number().min(1).optional(),
   max_stay_nights: z.number().min(1).optional(),
@@ -58,6 +63,14 @@ const roomTypeSchema = z.object({
 }, {
   message: "Minimum occupancy must be less than or equal to maximum occupancy",
   path: ["min_occupancy"]
+}).refine(data => {
+  if ((data.standard_adults_occupancy + data.standard_children_occupancy) > data.max_occupancy) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Total standard occupancy (adults + children) cannot exceed maximum occupancy",
+  path: ["standard_adults_occupancy"]
 }).refine(data => {
   if (data.max_adults > data.max_occupancy) {
     return false;
@@ -102,11 +115,15 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
       base_price: 0,
       weekend_price: undefined,
       max_occupancy: 2,
-      min_occupancy: 1,
+      min_occupancy: 1, // Keep for backward compatibility
       max_adults: 2,
       max_children: 0,
+      standard_adults_occupancy: 2,
+      standard_children_occupancy: 0,
       extra_adult_charge: 0,
       extra_child_charge: 0,
+      extra_single_bed_charge: undefined,
+      extra_double_bed_charge: undefined,
       size_sqm: undefined,
       min_stay_nights: undefined,
       max_stay_nights: undefined,
@@ -126,8 +143,12 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
         min_occupancy: roomType.min_occupancy || 1,
         max_adults: roomType.max_adults || roomType.max_occupancy,
         max_children: roomType.max_children || 0,
+        standard_adults_occupancy: (roomType as any).standard_adults_occupancy || (roomType as any).standard_occupancy || 2,
+        standard_children_occupancy: (roomType as any).standard_children_occupancy || 0,
         extra_adult_charge: Number(roomType.extra_adult_charge || 0),
         extra_child_charge: Number(roomType.extra_child_charge || 0),
+        extra_single_bed_charge: (roomType as any).extra_single_bed_charge ? Number((roomType as any).extra_single_bed_charge) : undefined,
+        extra_double_bed_charge: (roomType as any).extra_double_bed_charge ? Number((roomType as any).extra_double_bed_charge) : undefined,
         size_sqm: roomType.size_sqm ? Number(roomType.size_sqm) : undefined,
         min_stay_nights: roomType.min_stay_nights ? Number(roomType.min_stay_nights) : undefined,
         max_stay_nights: roomType.max_stay_nights ? Number(roomType.max_stay_nights) : undefined,
@@ -218,13 +239,16 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-3 gap-4">
               <FormField
                 control={form.control}
-                name="min_occupancy"
+                name="standard_adults_occupancy"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('roomTypes.minOccupancy')} *</FormLabel>
+                    <FormLabel>
+                      {language === 'vi' ? 'Số người lớn tiêu chuẩn' : 'Adults Occupancy'} *
+                    </FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -234,6 +258,38 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                         onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                       />
                     </FormControl>
+                    <FormDescription>
+                      {language === 'vi'
+                        ? 'Số người lớn tiêu chuẩn không tính phụ thu'
+                        : 'Standard adults without extra charge'}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="standard_children_occupancy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {language === 'vi' ? 'Số trẻ em tiêu chuẩn' : 'Child Occupancy'} *
+                    </FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        max="10" 
+                        {...field} 
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {language === 'vi'
+                        ? 'Số trẻ em tiêu chuẩn không tính phụ thu'
+                        : 'Standard children without extra charge'}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -355,6 +411,62 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       {language === 'vi'
                         ? 'Phụ thu cho mỗi trẻ em'
                         : 'Extra charge per child'}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="extra_single_bed_charge"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {language === 'vi' ? 'Phụ thu giường đơn' : 'Single Bed Extra Charge'}
+                    </FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        {...field} 
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {language === 'vi'
+                        ? 'Phụ thu khi thêm giường đơn cho khách bổ sung'
+                        : 'Extra charge for additional single bed for extra persons'}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="extra_double_bed_charge"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {language === 'vi' ? 'Phụ thu giường đôi' : 'Double Bed Extra Charge'}
+                    </FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        {...field} 
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {language === 'vi'
+                        ? 'Phụ thu khi thêm giường đôi cho khách bổ sung'
+                        : 'Extra charge for additional double bed for extra persons'}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

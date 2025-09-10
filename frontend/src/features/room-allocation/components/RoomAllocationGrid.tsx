@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { roomAllocationApi } from '@/lib/api/room-allocation'
 import type { 
   MonthlyGridResponse, 
@@ -369,6 +369,9 @@ export default function RoomAllocationGrid({
                 selectedCell?.date ? new Date(selectedCell.date).toLocaleDateString() : ''
               }
             </DialogTitle>
+            <DialogDescription>
+              View allocation details and manage room assignments for this date.
+            </DialogDescription>
           </DialogHeader>
           {selectedCell && (
             <div className="space-y-4">

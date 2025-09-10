@@ -51,6 +51,10 @@ class Booking(Base):
     special_requests = Column(String)
     internal_notes = Column(JSON)
     
+    # Currency information
+    selected_currency = Column(String(3), default="VND")
+    exchange_rate = Column(Numeric(10, 4), default=1.0000)
+    
     cancellation_reason = Column(String)
     cancelled_at = Column(DateTime(timezone=True))
     cancelled_by = Column(UUID(as_uuid=True))

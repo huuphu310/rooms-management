@@ -91,7 +91,8 @@ ROLE_PERMISSIONS = {
         "settings": ["view", "edit"],
         "users": ["view", "create", "edit", "delete"],
         "pricing": ["view", "create", "update", "delete"],
-        "amenities": ["view", "create", "update", "delete"]
+        "amenities": ["view", "create", "update", "delete"],
+        "room_allocation": ["view", "create", "edit", "delete", "auto_assign"]
     },
     "manager": {
         "rooms": ["view", "create", "edit"],
@@ -104,7 +105,8 @@ ROLE_PERMISSIONS = {
         "settings": ["view"],
         "users": ["view"],
         "pricing": ["view", "create", "update"],
-        "amenities": ["view", "create", "update"]
+        "amenities": ["view", "create", "update"],
+        "room_allocation": ["view", "create", "edit", "auto_assign"]
     },
     "receptionist": {
         "rooms": ["view"],
@@ -117,7 +119,8 @@ ROLE_PERMISSIONS = {
         "settings": [],
         "users": [],
         "pricing": ["view"],
-        "amenities": ["view"]
+        "amenities": ["view"],
+        "room_allocation": ["view", "create"]
     },
     "accountant": {
         "rooms": ["view"],
@@ -165,5 +168,17 @@ def check_permission(role: str, module: str, action: str) -> bool:
     if role not in ROLE_PERMISSIONS:
         return False
     
+    # Map common action aliases
+    action_mapping = {
+        "read": "view",
+        "update": "edit",
+        "delete": "delete",
+        "create": "create",
+        "admin": "edit"  # admin actions map to edit
+    }
+    
+    # Use mapped action if available, otherwise use original
+    mapped_action = action_mapping.get(action, action)
+    
     module_permissions = ROLE_PERMISSIONS[role].get(module, [])
-    return action in module_permissions
+    return mapped_action in module_permissions

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { 
   Users, 
   Hotel, 
@@ -26,6 +27,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { t, formatCurrency } = useLanguage();
   const [stats, setStats] = useState<DashboardStats>({
     totalRooms: 0,
     occupiedRooms: 0,
@@ -83,7 +85,7 @@ export default function Dashboard() {
 
       const { data: pendingInvoices } = await supabase
         .from('invoices')
-        .select('balance_due')
+        .select('total_amount, paid_amount')
         .in('status', ['pending', 'partial']);
 
       if (rooms) {
@@ -100,7 +102,7 @@ export default function Dashboard() {
           todayRevenue: todayPayments?.reduce((sum, p) => sum + p.amount, 0) || 0,
           monthRevenue: monthPayments?.reduce((sum, p) => sum + p.amount, 0) || 0,
           occupancyRate: rooms.length > 0 ? (occupied / rooms.length) * 100 : 0,
-          pendingPayments: pendingInvoices?.reduce((sum, i) => sum + i.balance_due, 0) || 0,
+          pendingPayments: pendingInvoices?.reduce((sum, i) => sum + (i.total_amount - (i.paid_amount || 0)), 0) || 0,
         });
       }
     } catch (error) {
@@ -112,7 +114,7 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      title: 'Total Rooms',
+      title: t('dashboard.totalRooms'),
       value: stats.totalRooms,
       description: `${stats.occupiedRooms} occupied, ${stats.availableRooms} available`,
       icon: Hotel,
@@ -120,7 +122,7 @@ export default function Dashboard() {
       bgColor: 'bg-blue-100',
     },
     {
-      title: 'Occupancy Rate',
+      title: t('dashboard.occupancyRate'),
       value: `${stats.occupancyRate.toFixed(1)}%`,
       description: 'Current occupancy',
       icon: Activity,
@@ -128,7 +130,7 @@ export default function Dashboard() {
       bgColor: 'bg-green-100',
     },
     {
-      title: "Today's Revenue",
+      title: t('dashboard.todayRevenue'),
       value: `$${stats.todayRevenue.toLocaleString()}`,
       description: 'Total revenue today',
       icon: DollarSign,
@@ -136,7 +138,7 @@ export default function Dashboard() {
       bgColor: 'bg-purple-100',
     },
     {
-      title: 'Month Revenue',
+      title: t('dashboard.monthRevenue'),
       value: `$${stats.monthRevenue.toLocaleString()}`,
       description: 'Revenue this month',
       icon: TrendingUp,
@@ -144,7 +146,7 @@ export default function Dashboard() {
       bgColor: 'bg-indigo-100',
     },
     {
-      title: 'Check-ins Today',
+      title: t('dashboard.todayCheckIns'),
       value: stats.todayCheckIns,
       description: 'Arrivals scheduled',
       icon: Calendar,
@@ -152,7 +154,7 @@ export default function Dashboard() {
       bgColor: 'bg-orange-100',
     },
     {
-      title: 'Check-outs Today',
+      title: t('dashboard.todayCheckOuts'),
       value: stats.todayCheckOuts,
       description: 'Departures scheduled',
       icon: Calendar,
@@ -160,7 +162,7 @@ export default function Dashboard() {
       bgColor: 'bg-red-100',
     },
     {
-      title: 'Total Customers',
+      title: t('dashboard.totalCustomers'),
       value: stats.totalCustomers,
       description: 'Registered customers',
       icon: Users,
@@ -168,7 +170,7 @@ export default function Dashboard() {
       bgColor: 'bg-cyan-100',
     },
     {
-      title: 'Pending Payments',
+      title: t('dashboard.pendingPayments'),
       value: `$${stats.pendingPayments.toLocaleString()}`,
       description: 'Outstanding balance',
       icon: CreditCard,
@@ -180,7 +182,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg">Loading dashboard...</div>
+        <div className="text-lg">{t('common.loading')}</div>
       </div>
     );
   }
@@ -188,9 +190,9 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{t('dashboard.title')}</h2>
         <p className="text-muted-foreground">
-          Welcome back! Here's an overview of your hotel operations.
+          {t('dashboard.welcomeMessage')}
         </p>
       </div>
 

@@ -10,6 +10,8 @@ import { PurchaseOrderForm } from './components/PurchaseOrderForm'
 import { ReceiveOrderDialog } from './components/ReceiveOrderDialog'
 import type { PurchaseOrderEnhancedResponse, PurchaseOrderStatus } from '@/types/inventory-enhanced'
 import { Plus, Eye, Check, Truck, AlertCircle, Calendar } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 export default function PurchaseOrderManagement() {
   const [orders, setOrders] = useState<PurchaseOrderEnhancedResponse[]>([])
@@ -19,6 +21,9 @@ export default function PurchaseOrderManagement() {
   const [showReceiveDialog, setShowReceiveDialog] = useState(false)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  
+  const { t } = useLanguage()
+  const { formatCurrency, convertFromVND } = useCurrency()
 
   useEffect(() => {
     loadOrders()
@@ -28,9 +33,10 @@ export default function PurchaseOrderManagement() {
     try {
       setLoading(true)
       const data = await inventoryEnhancedApi.getPurchaseOrders()
-      setOrders(data)
+      setOrders(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Failed to load purchase orders:', error)
+      setOrders([])
     } finally {
       setLoading(false)
     }
@@ -85,31 +91,32 @@ export default function PurchaseOrderManagement() {
   }
 
   const getFilteredOrders = () => {
+    const orderList = Array.isArray(orders) ? orders : []
     switch (activeTab) {
       case 'draft':
-        return orders.filter(order => order.status === 'draft')
+        return orderList.filter(order => order.status === 'draft')
       case 'pending':
-        return orders.filter(order => ['submitted', 'approved'].includes(order.status))
+        return orderList.filter(order => ['submitted', 'approved'].includes(order.status))
       case 'received':
-        return orders.filter(order => ['received', 'partial'].includes(order.status))
+        return orderList.filter(order => ['received', 'partial'].includes(order.status))
       default:
-        return orders
+        return orderList
     }
   }
 
-  const getPendingOrdersCount = () => orders.filter(order => ['submitted', 'approved'].includes(order.status)).length
-  const getDraftOrdersCount = () => orders.filter(order => order.status === 'draft').length
+  const getPendingOrdersCount = () => (Array.isArray(orders) ? orders : []).filter(order => ['submitted', 'approved'].includes(order.status)).length
+  const getDraftOrdersCount = () => (Array.isArray(orders) ? orders : []).filter(order => order.status === 'draft').length
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Purchase Orders</h2>
-          <p className="text-muted-foreground">Manage procurement and stock receiving</p>
+          <h2 className="text-3xl font-bold tracking-tight">{t('inventory.purchaseOrders')}</h2>
+          <p className="text-muted-foreground">{t('inventory.manageProcurement')}</p>
         </div>
         <Button onClick={() => setShowOrderDialog(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Create Order
+          {t('inventory.createOrder')}
         </Button>
       </div>
 
@@ -117,7 +124,7 @@ export default function PurchaseOrderManagement() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.totalOrders')}</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -127,7 +134,7 @@ export default function PurchaseOrderManagement() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Draft Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.draftOrders')}</CardTitle>
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -137,7 +144,7 @@ export default function PurchaseOrderManagement() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.pendingOrders')}</CardTitle>
             <Truck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -147,12 +154,12 @@ export default function PurchaseOrderManagement() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.totalValue')}</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${orders.reduce((sum, order) => sum + order.total_amount, 0).toLocaleString()}
+              {formatCurrency(orders.reduce((sum, order) => sum + (convertFromVND(Number(order.total_amount) || 0)), 0))}
             </div>
           </CardContent>
         </Card>
@@ -161,15 +168,15 @@ export default function PurchaseOrderManagement() {
       {/* Orders Table with Tabs */}
       <Card>
         <CardHeader>
-          <CardTitle>Purchase Orders</CardTitle>
+          <CardTitle>{t('inventory.purchaseOrders')}</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4">
-              <TabsTrigger value="all">All Orders ({orders.length})</TabsTrigger>
-              <TabsTrigger value="draft">Draft ({getDraftOrdersCount()})</TabsTrigger>
-              <TabsTrigger value="pending">Pending ({getPendingOrdersCount()})</TabsTrigger>
-              <TabsTrigger value="received">Received</TabsTrigger>
+              <TabsTrigger value="all">{t('inventory.allOrders')} ({orders.length})</TabsTrigger>
+              <TabsTrigger value="draft">{t('inventory.draft')} ({getDraftOrdersCount()})</TabsTrigger>
+              <TabsTrigger value="pending">{t('inventory.pending')} ({getPendingOrdersCount()})</TabsTrigger>
+              <TabsTrigger value="received">{t('inventory.received')}</TabsTrigger>
             </TabsList>
 
             <TabsContent value={activeTab}>
@@ -179,14 +186,14 @@ export default function PurchaseOrderManagement() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Order #</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Order Date</TableHead>
-                      <TableHead>Expected</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>{t('inventory.orderNumber')}</TableHead>
+                      <TableHead>{t('inventory.supplier')}</TableHead>
+                      <TableHead>{t('common.status')}</TableHead>
+                      <TableHead>{t('billing.items')}</TableHead>
+                      <TableHead>{t('common.total')}</TableHead>
+                      <TableHead>{t('inventory.orderDate')}</TableHead>
+                      <TableHead>{t('inventory.expectedDelivery')}</TableHead>
+                      <TableHead>{t('common.actions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -194,12 +201,12 @@ export default function PurchaseOrderManagement() {
                       <TableRow key={order.id}>
                         <TableCell>
                           <code className="text-sm bg-muted px-2 py-1 rounded">
-                            {order.order_number}
+                            {order.po_number || order.order_number}
                           </code>
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{order.supplier?.name || 'Unknown Supplier'}</p>
+                            <p className="font-medium">{order.supplier_name || order.supplier?.name || 'Unknown Supplier'}</p>
                             <p className="text-sm text-muted-foreground">
                               {order.supplier?.contact_person}
                             </p>
@@ -210,31 +217,31 @@ export default function PurchaseOrderManagement() {
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">
-                            {order.items.length} item{order.items.length !== 1 ? 's' : ''}
+                            {order.items_count || order.items?.length || 0} item{(order.items_count || order.items?.length || 0) !== 1 ? 's' : ''}
                           </span>
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">${order.total_amount.toFixed(2)}</p>
+                            <p className="font-medium">{formatCurrency(convertFromVND(Number(order.total_amount) || 0))}</p>
                             <p className="text-sm text-muted-foreground">
-                              Subtotal: ${order.subtotal.toFixed(2)}
+                              {t('common.subtotal')}: {formatCurrency(convertFromVND(Number(order.subtotal) || 0))}
                             </p>
                           </div>
                         </TableCell>
                         <TableCell>
-                          {new Date(order.order_date).toLocaleDateString()}
+                          {new Date(order.order_date || order.created_at).toLocaleDateString()}
                         </TableCell>
                         <TableCell>
-                          {order.expected_date ? (
+                          {(order.expected_delivery_date || order.expected_date) ? (
                             <div className={
-                              new Date(order.expected_date) < new Date() && 
+                              new Date(order.expected_delivery_date || order.expected_date) < new Date() && 
                               !['received'].includes(order.status) 
                                 ? 'text-red-600' : ''
                             }>
-                              {new Date(order.expected_date).toLocaleDateString()}
+                              {new Date(order.expected_delivery_date || order.expected_date).toLocaleDateString()}
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">Not set</span>
+                            <span className="text-muted-foreground">{t('inventory.notSet')}</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -243,6 +250,7 @@ export default function PurchaseOrderManagement() {
                               variant="ghost"
                               size="sm"
                               onClick={() => {
+                                console.log('Opening details for order:', order)
                                 setSelectedOrder(order)
                                 setShowDetailsDialog(true)
                               }}
@@ -256,7 +264,7 @@ export default function PurchaseOrderManagement() {
                                 size="sm"
                                 onClick={() => handleOrderAction(order.id, 'submit')}
                               >
-                                Submit
+                                {t('inventory.submit')}
                               </Button>
                             )}
 
@@ -295,7 +303,7 @@ export default function PurchaseOrderManagement() {
       <Dialog open={showOrderDialog} onOpenChange={setShowOrderDialog}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create Purchase Order</DialogTitle>
+            <DialogTitle>{t('inventory.newPurchaseOrder')}</DialogTitle>
           </DialogHeader>
           <PurchaseOrderForm
             onSave={() => {
@@ -308,18 +316,19 @@ export default function PurchaseOrderManagement() {
       </Dialog>
 
       {/* Order Details Dialog */}
+      {selectedOrder && console.log('Selected order for dialog:', selectedOrder)}
       {selectedOrder && (
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                Purchase Order {selectedOrder.order_number}
+                {t('inventory.purchaseOrders')} {selectedOrder.po_number || selectedOrder.order_number}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <h4 className="font-medium mb-2">Order Information</h4>
+                  <h4 className="font-medium mb-2">{t('inventory.orderInformation')}</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Status:</span>
@@ -327,13 +336,13 @@ export default function PurchaseOrderManagement() {
                     </div>
                     <div className="flex justify-between">
                       <span>Order Date:</span>
-                      <span>{new Date(selectedOrder.order_date).toLocaleDateString()}</span>
+                      <span>{new Date(selectedOrder.order_date || selectedOrder.created_at).toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Expected Date:</span>
                       <span>
-                        {selectedOrder.expected_date 
-                          ? new Date(selectedOrder.expected_date).toLocaleDateString()
+                        {(selectedOrder.expected_delivery_date || selectedOrder.expected_date) 
+                          ? new Date(selectedOrder.expected_delivery_date || selectedOrder.expected_date).toLocaleDateString()
                           : 'Not set'
                         }
                       </span>
@@ -342,9 +351,9 @@ export default function PurchaseOrderManagement() {
                 </div>
                 
                 <div>
-                  <h4 className="font-medium mb-2">Supplier</h4>
+                  <h4 className="font-medium mb-2">{t('inventory.supplier')}</h4>
                   <div className="space-y-2 text-sm">
-                    <div><strong>{selectedOrder.supplier?.name}</strong></div>
+                    <div><strong>{selectedOrder.supplier_name || selectedOrder.supplier?.name || 'Unknown Supplier'}</strong></div>
                     <div>{selectedOrder.supplier?.contact_person}</div>
                     <div>{selectedOrder.supplier?.email}</div>
                     <div>{selectedOrder.supplier?.phone}</div>
@@ -353,55 +362,61 @@ export default function PurchaseOrderManagement() {
               </div>
 
               <div>
-                <h4 className="font-medium mb-2">Order Items</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Unit Cost</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Received</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedOrder.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{item.product?.name}</p>
-                            <p className="text-sm text-muted-foreground">{item.product?.sku}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.quantity}</TableCell>
-                        <TableCell>${item.unit_cost.toFixed(2)}</TableCell>
-                        <TableCell>${item.total_cost.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge variant={
-                            item.received_quantity === item.quantity ? 'default' :
-                            item.received_quantity > 0 ? 'secondary' : 'outline'
-                          }>
-                            {item.received_quantity} / {item.quantity}
-                          </Badge>
-                        </TableCell>
+                <h4 className="font-medium mb-2">{t('inventory.orderItems')}</h4>
+                {(selectedOrder.items && selectedOrder.items.length > 0) ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Unit Cost</TableHead>
+                        <TableHead>Total</TableHead>
+                        <TableHead>Received</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedOrder.items.map((item, index) => (
+                        <TableRow key={item.id || index}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{item.product?.name || 'Unknown Product'}</p>
+                              <p className="text-sm text-muted-foreground">{item.product?.sku || 'N/A'}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{item.quantity || 0}</TableCell>
+                          <TableCell>${(Number(item.unit_cost) || 0).toFixed(2)}</TableCell>
+                          <TableCell>${(Number(item.total_cost || (item.quantity * item.unit_cost)) || 0).toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              item.received_quantity === item.quantity ? 'default' :
+                              item.received_quantity > 0 ? 'secondary' : 'outline'
+                            }>
+                              {item.received_quantity || 0} / {item.quantity || 0}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                    No items in this order yet
+                  </div>
+                )}
               </div>
 
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center text-sm">
                   <span>Subtotal:</span>
-                  <span>${selectedOrder.subtotal.toFixed(2)}</span>
+                  <span>${(Number(selectedOrder.subtotal) || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span>Tax:</span>
-                  <span>${selectedOrder.tax_total.toFixed(2)}</span>
+                  <span>${(Number(selectedOrder.tax_total) || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-lg font-bold">
                   <span>Total:</span>
-                  <span>${selectedOrder.total_amount.toFixed(2)}</span>
+                  <span>${(Number(selectedOrder.total_amount) || 0).toFixed(2)}</span>
                 </div>
               </div>
             </div>

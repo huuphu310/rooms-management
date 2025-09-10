@@ -3,8 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { roomAllocationApi } from '@/lib/api/room-allocation'
+import roomService from '@/services/roomService'
 import type { RoomBlock } from '@/types/room-allocation'
 import { Calendar, Plus, Settings, AlertTriangle } from 'lucide-react'
+import CreateRoomBlockModal from './CreateRoomBlockModal'
 
 interface RoomBlocksManagementProps {
   onBlockCreated?: () => void
@@ -13,20 +15,65 @@ interface RoomBlocksManagementProps {
 export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManagementProps) {
   const [blocks, setBlocks] = useState<RoomBlock[]>([])
   const [loading, setLoading] = useState(true)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [rooms, setRooms] = useState<any[]>([]) // Store rooms data for display
 
   useEffect(() => {
-    loadBlocks()
+    loadData()
   }, [])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      // Load both blocks and rooms data
+      const [blocksData, roomsData] = await Promise.all([
+        roomAllocationApi.getRoomBlocks({ is_active: true }),
+        roomService.getRooms()
+      ])
+      setBlocks(blocksData)
+      setRooms(roomsData.data || [])
+    } catch (error) {
+      console.error('Failed to load data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const loadBlocks = async () => {
     try {
-      setLoading(true)
       const data = await roomAllocationApi.getRoomBlocks({ is_active: true })
       setBlocks(data)
     } catch (error) {
       console.error('Failed to load room blocks:', error)
-    } finally {
-      setLoading(false)
+    }
+  }
+
+  const getRoomNumber = (roomId: string) => {
+    const room = rooms.find(r => r.id === roomId)
+    return room ? room.room_number : 'Unknown'
+  }
+
+  const handleCreateSuccess = () => {
+    loadBlocks() // Reload the blocks list
+    setShowCreateModal(false)
+    if (onBlockCreated) {
+      onBlockCreated()
+    }
+  }
+
+  const handleReleaseBlock = async (blockId: string) => {
+    if (!confirm('Are you sure you want to release this room block?')) {
+      return
+    }
+
+    try {
+      await roomAllocationApi.releaseRoomBlock(blockId, {
+        release_reason: 'Manual release by user'
+      })
+      loadBlocks() // Reload the blocks list
+    } catch (error) {
+      console.error('Failed to release room block:', error)
+      alert('Failed to release room block. Please try again.')
     }
   }
 
@@ -63,7 +110,7 @@ export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManag
             Manage room blocks for maintenance, VIP holds, and other purposes
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setShowCreateModal(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Create Block
         </Button>
@@ -84,7 +131,7 @@ export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManag
               <p className="text-muted-foreground mb-4">
                 Create room blocks for maintenance, VIP holds, or special purposes
               </p>
-              <Button>
+              <Button onClick={() => setShowCreateModal(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Create First Block
               </Button>
@@ -96,7 +143,7 @@ export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManag
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="font-medium">Room {block.room_id}</span>
+                        <span className="font-medium">Room {getRoomNumber(block.room_id)}</span>
                         <Badge className={getBlockTypeColor(block.block_type)}>
                           {block.block_type.replace('_', ' ')}
                         </Badge>
@@ -115,10 +162,14 @@ export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManag
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" disabled>
                         Edit
                       </Button>
-                      <Button variant="destructive" size="sm">
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => handleReleaseBlock(block.id)}
+                      >
                         Release
                       </Button>
                     </div>
@@ -129,6 +180,13 @@ export default function RoomBlocksManagement({ onBlockCreated }: RoomBlocksManag
           )}
         </CardContent>
       </Card>
+
+      {/* Create Room Block Modal */}
+      <CreateRoomBlockModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleCreateSuccess}
+      />
     </div>
   )
 }

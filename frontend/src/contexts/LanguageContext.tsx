@@ -4,7 +4,7 @@ import { translations, type Language } from '@/i18n/translations';
 interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, any>) => string;
   formatCurrency: (amount: number, currency?: string) => string;
 }
 
@@ -21,7 +21,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     document.documentElement.lang = language;
   }, [language]);
 
-  const t = (key: string): string => {
+  const t = (key: string, params?: Record<string, any>): string => {
     const keys = key.split('.');
     let value: any = translations[language];
     
@@ -30,7 +30,17 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     
     // Only return value if it's a string, otherwise return the key
-    return typeof value === 'string' ? value : key;
+    let result = typeof value === 'string' ? value : key;
+    
+    // Handle parameter interpolation
+    if (params && typeof result === 'string') {
+      Object.keys(params).forEach(param => {
+        const placeholder = `{${param}}`;
+        result = result.replace(new RegExp(placeholder, 'g'), String(params[param]));
+      });
+    }
+    
+    return result;
   };
 
   const formatCurrency = (amount: number, currency: string = 'VND'): string => {

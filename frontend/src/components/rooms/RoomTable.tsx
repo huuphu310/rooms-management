@@ -42,18 +42,20 @@ interface RoomTableProps {
 
 const statusColors = {
   available: 'bg-green-500',
+  booked: 'bg-blue-500',
   occupied: 'bg-red-500',
   cleaning: 'bg-yellow-500',
   maintenance: 'bg-orange-500',
-  reserved: 'bg-blue-500',
+  blocked: 'bg-gray-500',
 };
 
 const statusLabels = {
   available: 'Trống',
+  booked: 'Đã đặt',
   occupied: 'Đang ở',
   cleaning: 'Đang dọn',
   maintenance: 'Bảo trì',
-  reserved: 'Đã đặt',
+  blocked: 'Đã khóa',
 };
 
 export const RoomTable: React.FC<RoomTableProps> = ({
@@ -96,6 +98,7 @@ export const RoomTable: React.FC<RoomTableProps> = ({
             <TableRow>
               <TableHead className="w-[100px]">Số phòng</TableHead>
               <TableHead>Loại phòng</TableHead>
+              <TableHead className="text-center">Tòa nhà</TableHead>
               <TableHead className="text-center">Tầng</TableHead>
               <TableHead className="text-center">Trạng thái</TableHead>
               <TableHead className="text-right">Giá/đêm</TableHead>
@@ -107,7 +110,7 @@ export const RoomTable: React.FC<RoomTableProps> = ({
           <TableBody>
             {rooms.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   Không có phòng nào
                 </TableCell>
               </TableRow>
@@ -116,6 +119,7 @@ export const RoomTable: React.FC<RoomTableProps> = ({
                 <TableRow key={room.id}>
                   <TableCell className="font-medium">{room.room_number}</TableCell>
                   <TableCell>{room.room_type?.name || 'N/A'}</TableCell>
+                  <TableCell className="text-center">{room.building_name || '-'}</TableCell>
                   <TableCell className="text-center">{room.floor}</TableCell>
                   <TableCell className="text-center">
                     <Badge 
@@ -183,14 +187,28 @@ export const RoomTable: React.FC<RoomTableProps> = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Xác nhận xóa phòng</AlertDialogTitle>
-            <AlertDialogDescription>
-              Bạn có chắc chắn muốn xóa phòng <strong>{selectedRoom?.room_number}</strong>? 
-              Hành động này không thể hoàn tác.
+            <AlertDialogDescription className="space-y-2">
+              <div>
+                Bạn có chắc chắn muốn xóa phòng <strong>{selectedRoom?.room_number}</strong>?
+              </div>
+              {selectedRoom?.status !== 'available' && (
+                <div className="text-destructive font-medium">
+                  ⚠️ Cảnh báo: Phòng đang ở trạng thái "{statusLabels[selectedRoom?.status] || selectedRoom?.status}". 
+                  Chỉ có thể xóa phòng khi phòng đang trống (available).
+                </div>
+              )}
+              <div className="text-muted-foreground text-sm">
+                Hành động này không thể hoàn tác.
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Hủy</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm}>
+            <AlertDialogAction 
+              onClick={handleDeleteConfirm}
+              disabled={selectedRoom?.status !== 'available'}
+              className={selectedRoom?.status !== 'available' ? 'opacity-50 cursor-not-allowed' : ''}
+            >
               Xóa
             </AlertDialogAction>
           </AlertDialogFooter>

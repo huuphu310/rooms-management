@@ -49,10 +49,10 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
   }, [])
 
   const loadSuppliers = async () => {
-    // Mock suppliers for now
+    // Mock suppliers for now with valid UUID format
     setSuppliers([
-      { id: 'sup-1', name: 'ABC Supplies', contact_person: 'John Doe', email: 'john@abc.com', phone: '123-456-7890', is_active: true },
-      { id: 'sup-2', name: 'XYZ Distributors', contact_person: 'Jane Smith', email: 'jane@xyz.com', phone: '098-765-4321', is_active: true }
+      { id: '550e8400-e29b-41d4-a716-446655440001', name: 'ABC Supplies', contact_person: 'John Doe', email: 'john@abc.com', phone: '123-456-7890', is_active: true },
+      { id: '550e8400-e29b-41d4-a716-446655440002', name: 'XYZ Distributors', contact_person: 'Jane Smith', email: 'jane@xyz.com', phone: '098-765-4321', is_active: true }
     ])
   }
 
@@ -78,18 +78,22 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
         ...formData,
         items: items.map(item => ({
           product_id: item.product_id,
-          quantity: item.quantity,
-          unit_cost: item.unit_cost,
-          tax_amount: item.tax_amount,
-          discount_amount: item.discount_amount,
-          notes: item.notes || undefined
+          quantity: Number(item.quantity) || 1,
+          unit_cost: Number(item.unit_cost) || 0,
+          tax_amount: Number(item.tax_amount) || 0,
+          discount_amount: Number(item.discount_amount) || 0,
+          notes: item.notes || ''
         }))
       }
       
       await inventoryEnhancedApi.createPurchaseOrder(orderData)
       onSave()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create purchase order:', error)
+      if (error.response?.data) {
+        console.error('Error details:', error.response.data)
+        alert(`Error: ${JSON.stringify(error.response.data)}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -108,7 +112,7 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
         product_id: product.id,
         product,
         quantity: 1,
-        unit_cost: product.cost_per_unit,
+        unit_cost: Number(product.cost_per_unit) || 0,
         tax_amount: 0,
         discount_amount: 0,
         notes: ''
@@ -250,7 +254,7 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
                               {product.current_stock} {product.unit_of_measure}
                             </span>
                           </TableCell>
-                          <TableCell>${product.cost_per_unit.toFixed(2)}</TableCell>
+                          <TableCell>${(Number(product.cost_per_unit) || 0).toFixed(2)}</TableCell>
                           <TableCell>
                             <Button
                               type="button"
@@ -337,7 +341,7 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">
-                        ${((item.quantity * item.unit_cost) + item.tax_amount - item.discount_amount).toFixed(2)}
+                        ${((Number(item.quantity) * Number(item.unit_cost)) + Number(item.tax_amount || 0) - Number(item.discount_amount || 0)).toFixed(2)}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -365,19 +369,19 @@ export function PurchaseOrderForm({ onSave, onCancel }: PurchaseOrderFormProps) 
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span>Subtotal:</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>${(Number(subtotal) || 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Tax:</span>
-                <span>${totalTax.toFixed(2)}</span>
+                <span>${(Number(totalTax) || 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Discount:</span>
-                <span>-${totalDiscount.toFixed(2)}</span>
+                <span>-${(Number(totalDiscount) || 0).toFixed(2)}</span>
               </div>
               <div className="border-t pt-2 flex justify-between font-bold text-lg">
                 <span>Total:</span>
-                <span>${total.toFixed(2)}</span>
+                <span>${(Number(total) || 0).toFixed(2)}</span>
               </div>
             </div>
           </CardContent>

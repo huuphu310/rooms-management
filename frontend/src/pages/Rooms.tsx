@@ -1,141 +1,199 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/lib/supabase';
-import { Plus, Edit, Trash2, Bed, Home } from 'lucide-react';
-
-interface Room {
-  id: string;
-  room_number: string;
-  floor: number;
-  status: string;
-  room_type: {
-    name: string;
-    base_price: number;
-    max_occupancy: number;
-  };
-}
+import { useState } from 'react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Plus, Grid3x3, List } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useToast } from '@/hooks/use-toast'
+import { RoomList } from '@/components/rooms/RoomList'
+import { RoomForm } from '@/components/rooms/RoomForm'
+import { RoomGridView } from '@/components/rooms/RoomGridView'
+import { roomsApi, type Room, type RoomCreate } from '@/lib/api/rooms'
+import { useQueryClient } from '@tanstack/react-query'
 
 export default function Rooms() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const { t } = useLanguage()
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+  
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
-  useEffect(() => {
-    fetchRooms();
-  }, [filter]);
-
-  const fetchRooms = async () => {
+  const handleCreateRoom = async (data: RoomCreate) => {
     try {
-      let query = supabase
-        .from('rooms')
-        .select(`
-          *,
-          room_type:room_types(name, base_price, max_occupancy)
-        `);
-
-      if (filter !== 'all') {
-        query = query.eq('status', filter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setRooms(data || []);
-    } catch (error) {
-      console.error('Error fetching rooms:', error);
-    } finally {
-      setLoading(false);
+      await roomsApi.create(data)
+      toast({
+        title: t('success'),
+        description: t('roomCreatedSuccessfully'),
+      })
+      setIsCreateDialogOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-grid'] })
+    } catch (error: any) {
+      toast({
+        title: t('error'),
+        description: error.response?.data?.detail || t('failedToCreateRoom'),
+        variant: 'destructive',
+      })
     }
-  };
+  }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'available': return 'bg-green-500';
-      case 'occupied': return 'bg-red-500';
-      case 'cleaning': return 'bg-yellow-500';
-      case 'maintenance': return 'bg-gray-500';
-      default: return 'bg-gray-400';
+  const handleUpdateRoom = async (data: any) => {
+    if (!selectedRoom) return
+    
+    try {
+      await roomsApi.update(selectedRoom.id, data)
+      toast({
+        title: t('success'),
+        description: t('roomUpdatedSuccessfully'),
+      })
+      setIsEditDialogOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-grid'] })
+    } catch (error: any) {
+      toast({
+        title: t('error'),
+        description: error.response?.data?.detail || t('failedToUpdateRoom'),
+        variant: 'destructive',
+      })
     }
-  };
+  }
 
-  const statusFilters = [
-    { value: 'all', label: 'All Rooms' },
-    { value: 'available', label: 'Available' },
-    { value: 'occupied', label: 'Occupied' },
-    { value: 'cleaning', label: 'Cleaning' },
-    { value: 'maintenance', label: 'Maintenance' },
-  ];
+  const handleEditRoom = (room: Room) => {
+    setSelectedRoom(room)
+    setIsEditDialogOpen(true)
+  }
 
-  if (loading) {
-    return <div className="p-6">Loading rooms...</div>;
+  const handleDeleteRoom = async (room: Room) => {
+    if (!confirm(t('confirmDeleteRoom'))) return
+    
+    try {
+      await roomsApi.delete(room.id)
+      toast({
+        title: t('success'),
+        description: t('roomDeletedSuccessfully'),
+      })
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms-grid'] })
+    } catch (error: any) {
+      toast({
+        title: t('error'),
+        description: error.response?.data?.detail || t('failedToDeleteRoom'),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleAssignBooking = (room: Room) => {
+    // Open a dialog to select and assign a booking to this room
+    toast({
+      title: t('info'),
+      description: t('assignBookingFeatureComingSoon'),
+    })
+  }
+
+  const handleCheckIn = async (room: Room) => {
+    // Navigate to the booking check-in
+    toast({
+      title: t('info'),
+      description: t('navigateToBookingForCheckIn'),
+    })
+  }
+
+  const handleCheckOut = async (room: Room) => {
+    // Navigate to the booking check-out
+    toast({
+      title: t('info'),
+      description: t('navigateToBookingForCheckOut'),
+    })
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto p-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Room Management</h2>
-          <p className="text-muted-foreground">Manage your hotel rooms and availability</p>
+          <h1 className="text-3xl font-bold">{t('rooms.roomManagement')}</h1>
+          <p className="text-gray-600 mt-1">{t('rooms.manageYourRooms')}</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" /> Add Room
-        </Button>
-      </div>
-
-      <div className="flex gap-2">
-        {statusFilters.map((statusFilter) => (
-          <Button
-            key={statusFilter.value}
-            variant={filter === statusFilter.value ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter(statusFilter.value)}
-          >
-            {statusFilter.label}
+        <div className="flex gap-2">
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('rooms.newRoom')}
           </Button>
-        ))}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {rooms.map((room) => (
-          <Card key={room.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="text-lg">Room {room.room_number}</CardTitle>
-                  <p className="text-sm text-muted-foreground">Floor {room.floor}</p>
-                </div>
-                <Badge className={getStatusColor(room.status)}>
-                  {room.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex items-center text-sm">
-                  <Home className="mr-2 h-4 w-4" />
-                  {room.room_type?.name}
-                </div>
-                <div className="flex items-center text-sm">
-                  <Bed className="mr-2 h-4 w-4" />
-                  Max {room.room_type?.max_occupancy} guests
-                </div>
-                <div className="text-lg font-semibold">
-                  ${room.room_type?.base_price}/night
-                </div>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <Button variant="outline" size="sm" className="flex-1">
-                  <Edit className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'grid' | 'list')}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="grid" className="flex items-center gap-2">
+            <Grid3x3 className="h-4 w-4" />
+            {t('gridView')}
+          </TabsTrigger>
+          <TabsTrigger value="list" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            {t('listView')}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="grid">
+          <RoomGridView
+            onAssignBooking={handleAssignBooking}
+            onCheckIn={handleCheckIn}
+            onCheckOut={handleCheckOut}
+            onEditRoom={handleEditRoom}
+          />
+        </TabsContent>
+
+        <TabsContent value="list">
+          <RoomList
+            onEditRoom={handleEditRoom}
+            onDeleteRoom={handleDeleteRoom}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Create Room Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('rooms.createNewRoom')}</DialogTitle>
+            <DialogDescription>
+              {t('rooms.fillInTheFormBelowToCreateANewRoom')}
+            </DialogDescription>
+          </DialogHeader>
+          <RoomForm
+            onSubmit={handleCreateRoom}
+            onCancel={() => setIsCreateDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Room Dialog */}
+      {selectedRoom && (
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{t('rooms.editRoom')}</DialogTitle>
+              <DialogDescription>
+                {t('rooms.updateRoomInformation')}
+              </DialogDescription>
+            </DialogHeader>
+            <RoomForm
+              room={selectedRoom}
+              onSubmit={handleUpdateRoom}
+              onCancel={() => setIsEditDialogOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
-  );
+  )
 }

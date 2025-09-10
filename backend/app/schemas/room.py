@@ -33,13 +33,20 @@ class RoomTypeBase(BaseModel):
     extra_person_charge: Decimal = Field(default=0, ge=0, decimal_places=2)  # Deprecated
     
     # Capacity
-    standard_occupancy: int = Field(default=2, ge=1, le=10)
+    standard_occupancy: int = Field(default=2, ge=1, le=10)  # Keep for backward compatibility
     max_occupancy: int = Field(..., ge=1, le=10)
-    min_occupancy: int = Field(default=1, ge=1, le=10)
+    min_occupancy: int = Field(default=1, ge=1, le=10)  # Keep for backward compatibility
     max_adults: Optional[int] = Field(None, ge=1, le=10)
     max_children: int = Field(default=0, ge=0, le=10)
+    
+    # New separate occupancy fields
+    standard_adults_occupancy: int = Field(default=2, ge=1, le=10)
+    standard_children_occupancy: int = Field(default=0, ge=0, le=10)
+    
     extra_adult_charge: Decimal = Field(default=0, ge=0, decimal_places=2)
     extra_child_charge: Decimal = Field(default=0, ge=0, decimal_places=2)
+    extra_single_bed_charge: Optional[Decimal] = Field(default=0, ge=0, decimal_places=2)
+    extra_double_bed_charge: Optional[Decimal] = Field(default=0, ge=0, decimal_places=2)
     
     # Physical specifications
     size_sqm_from: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
@@ -91,14 +98,21 @@ class RoomTypeUpdate(BaseModel):
     base_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     weekend_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     holiday_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
-    standard_occupancy: Optional[int] = Field(None, ge=1, le=10)
+    standard_occupancy: Optional[int] = Field(None, ge=1, le=10)  # Keep for backward compatibility
     max_occupancy: Optional[int] = Field(None, ge=1, le=10)
-    min_occupancy: Optional[int] = Field(None, ge=1, le=10)
+    min_occupancy: Optional[int] = Field(None, ge=1, le=10)  # Keep for backward compatibility
     max_adults: Optional[int] = Field(None, ge=1, le=10)
     max_children: Optional[int] = Field(None, ge=0, le=10)
+    
+    # New separate occupancy fields
+    standard_adults_occupancy: Optional[int] = Field(None, ge=1, le=10)
+    standard_children_occupancy: Optional[int] = Field(None, ge=0, le=10)
+    
     extra_adult_charge: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
     extra_child_charge: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
     extra_person_charge: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    extra_single_bed_charge: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    extra_double_bed_charge: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
     size_sqm_from: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     size_sqm_to: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     standard_amenities: Optional[List[str]] = None
@@ -130,7 +144,8 @@ class RoomBase(BaseModel):
     
     # Location specifics
     floor: Optional[int] = Field(None, ge=0, le=100)
-    building: Optional[str] = Field(None, max_length=50)  # For multi-building properties
+    building: Optional[str] = Field(None, max_length=50)  # Deprecated - use building_id
+    building_id: Optional[UUID] = None  # Foreign key to buildings table
     wing: Optional[str] = Field(None, max_length=50)  # Wing/Section
     zone: Optional[str] = Field(None, max_length=50)  # Zone/Area
     view_type: Optional[RoomView] = RoomView.NONE
@@ -179,6 +194,9 @@ class RoomBase(BaseModel):
     housekeeping_notes: Optional[str] = None
     cleaning_duration_minutes: int = Field(default=30, ge=0)
     cleaning_priority: int = Field(default=5, ge=1, le=10)
+    
+    # General notes
+    notes: Optional[str] = None
 
 class RoomCreate(RoomBase):
     pass
@@ -188,7 +206,8 @@ class RoomUpdate(BaseModel):
     room_type_id: Optional[UUID] = None
     # Location
     floor: Optional[int] = Field(None, ge=0, le=100)
-    building: Optional[str] = Field(None, max_length=50)
+    building: Optional[str] = Field(None, max_length=50)  # Deprecated - use building_id
+    building_id: Optional[UUID] = None  # Foreign key to buildings table
     wing: Optional[str] = Field(None, max_length=50)
     zone: Optional[str] = Field(None, max_length=50)
     view_type: Optional[RoomView] = None
@@ -229,6 +248,9 @@ class RoomUpdate(BaseModel):
     housekeeping_notes: Optional[str] = None
     cleaning_duration_minutes: Optional[int] = Field(None, ge=0)
     cleaning_priority: Optional[int] = Field(None, ge=1, le=10)
+    
+    # General notes
+    notes: Optional[str] = None
 
 class RoomStatusUpdate(BaseModel):
     status: RoomStatus
@@ -241,6 +263,8 @@ class Room(RoomBase):
     created_at: datetime
     updated_at: datetime
     room_type: Optional[RoomType] = None
+    building_name: Optional[str] = None  # Populated from JOIN with buildings table
+    building_code: Optional[str] = None  # Populated from JOIN with buildings table
     
     model_config = ConfigDict(from_attributes=True)
 

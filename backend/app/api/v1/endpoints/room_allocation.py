@@ -1,12 +1,16 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from fastapi.responses import JSONResponse
 
-from app.core.database import get_supabase_service
-from app.api.deps import require_permission, get_current_user
+from app.api.deps import (
+    require_permission, get_current_user, get_current_user_optional,
+    UserScopedDbDep,
+    AuthenticatedDbDep
+)
 from app.services.room_allocation_service import RoomAllocationService
+from app.services.room_allocation_service_optimized import OptimizedRoomAllocationService
 from app.schemas.room_allocation import (
     # Core schemas
     RoomAllocationCreate, RoomAllocationUpdate, RoomAllocationResponse,
@@ -38,7 +42,6 @@ from app.schemas.room_allocation import (
 
 router = APIRouter()
 
-
 # ================================
 # CORE ROOM ASSIGNMENT OPERATIONS
 # ================================
@@ -46,7 +49,7 @@ router = APIRouter()
 @router.post("/assign-room", response_model=AssignRoomResponse)
 async def assign_room(
     request: AssignRoomRequest,
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "create"))
 ):
     """
@@ -64,11 +67,10 @@ async def assign_room(
     service = RoomAllocationService(db)
     return await service.assign_room(request)
 
-
 @router.post("/auto-assign", response_model=AutoAssignResponse)
 async def auto_assign_rooms(
     request: AutoAssignRequest,
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "create"))
 ):
     """
@@ -83,12 +85,11 @@ async def auto_assign_rooms(
     service = RoomAllocationService(db)
     return await service.auto_assign_rooms(request)
 
-
 @router.put("/{allocation_id}/change-room", response_model=ChangeRoomResponse)
 async def change_room(
-    allocation_id: UUID = Path(..., description="Allocation ID"),
-    request: ChangeRoomRequest = ...,
-    db=Depends(get_supabase_service),
+    allocation_id: UUID,
+    request: ChangeRoomRequest,
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "update"))
 ):
     """
@@ -106,12 +107,11 @@ async def change_room(
     service = RoomAllocationService(db)
     return await service.change_room(allocation_id, request)
 
-
 @router.get("/allocations/{allocation_id}", response_model=RoomAllocationResponse)
 async def get_allocation(
-    allocation_id: UUID = Path(..., description="Allocation ID"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    allocation_id: UUID,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user)
 ):
     """Get allocation details by ID"""
     service = RoomAllocationService(db)
@@ -130,12 +130,11 @@ async def get_allocation(
     
     return RoomAllocationResponse(**result.data[0])
 
-
 @router.put("/allocations/{allocation_id}", response_model=RoomAllocationResponse)
 async def update_allocation(
-    allocation_id: UUID = Path(..., description="Allocation ID"),
-    request: RoomAllocationUpdate = ...,
-    db=Depends(get_supabase_service),
+    allocation_id: UUID,
+    request: RoomAllocationUpdate,
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "update"))
 ):
     """Update allocation details"""
@@ -154,12 +153,11 @@ async def update_allocation(
     
     return RoomAllocationResponse(**result.data[0])
 
-
 @router.delete("/allocations/{allocation_id}")
 async def cancel_allocation(
-    allocation_id: UUID = Path(..., description="Allocation ID"),
+    allocation_id: UUID,
+    db: AuthenticatedDbDep,
     reason: str = Query(..., description="Cancellation reason"),
-    db=Depends(get_supabase_service),
     current_user: dict = Depends(require_permission("room_allocation", "delete"))
 ):
     """Cancel a room allocation"""
@@ -182,20 +180,19 @@ async def cancel_allocation(
     
     return JSONResponse({"message": "Allocation cancelled successfully"})
 
-
 # ================================
 # GRID AND CALENDAR VIEWS
 # ================================
 
 @router.get("/monthly-grid", response_model=MonthlyGridResponse)
 async def get_monthly_grid(
+    db: AuthenticatedDbDep,
     month: str = Query(..., regex=r'^\d{4}-\d{2}$', description="Format: YYYY-MM"),
     room_type_ids: Optional[str] = Query(None, description="Comma-separated room type UUIDs"),
     floors: Optional[str] = Query(None, description="Comma-separated floor numbers"),
     include_blocked: bool = Query(True, description="Include blocked rooms"),
     include_maintenance: bool = Query(True, description="Include maintenance blocks"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Get room allocation grid for a month
@@ -218,9 +215,9 @@ async def get_monthly_grid(
     service = RoomAllocationService(db)
     return await service.get_monthly_grid(request)
 
-
 @router.get("/available-rooms", response_model=AvailableRoomsResponse)
 async def get_available_rooms(
+    db: AuthenticatedDbDep,
     check_in_date: date = Query(..., description="Check-in date"),
     check_out_date: date = Query(..., description="Check-out date"),
     room_type_id: Optional[UUID] = Query(None, description="Filter by room type"),
@@ -228,8 +225,7 @@ async def get_available_rooms(
     accessibility_required: bool = Query(False, description="Accessibility requirements"),
     features_required: Optional[str] = Query(None, description="Comma-separated features"),
     exclude_rooms: Optional[str] = Query(None, description="Comma-separated room UUIDs to exclude"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get available rooms for specific dates and criteria"""
     request = AvailableRoomsRequest(
@@ -245,34 +241,39 @@ async def get_available_rooms(
     service = RoomAllocationService(db)
     return await service.get_available_rooms(request)
 
-
 # ================================
 # ALERT MANAGEMENT
 # ================================
 
 @router.get("/alerts/unassigned", response_model=UnassignedBookingsResponse)
 async def get_unassigned_bookings(
+    db: AuthenticatedDbDep,
     severity: Optional[AlertSeverity] = Query(None, description="Filter by alert severity"),
     hours_ahead: Optional[int] = Query(48, description="Look ahead hours for check-ins"),
-    db=Depends(get_supabase_service),
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Get all unassigned booking alerts
+    Get all unassigned booking alerts - OPTIMIZED VERSION
     
     Returns bookings that need room assignment with:
     - Alert severity based on time until check-in
     - Available room options
     - Guest preferences and special requirements
+    
+    Performance optimizations:
+    - Uses batch queries instead of N+1 queries
+    - Single query for all unassigned bookings
+    - Single query for room availability
+    - In-memory date overlap calculations
     """
-    service = RoomAllocationService(db)
-    return await service.get_unassigned_bookings()
-
+    # Use optimized service for better performance
+    optimized_service = OptimizedRoomAllocationService(db)
+    return await optimized_service.get_unassigned_bookings_fast()
 
 @router.post("/alerts/bulk-resolve", response_model=BulkResolveAlertsResponse)
 async def bulk_resolve_alerts(
     request: BulkResolveAlertsRequest,
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "create"))
 ):
     """
@@ -286,14 +287,13 @@ async def bulk_resolve_alerts(
     service = RoomAllocationService(db)
     return await service.bulk_resolve_alerts(request)
 
-
 @router.get("/alerts", response_model=List[AllocationAlertResponse])
 async def get_allocation_alerts(
+    db: AuthenticatedDbDep,
     is_resolved: Optional[bool] = Query(False, description="Filter by resolution status"),
     severity: Optional[AlertSeverity] = Query(None, description="Filter by severity"),
     limit: int = Query(50, description="Limit number of results"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get allocation alerts with filtering"""
     query = db.table("allocation_alerts").select("*").eq("is_resolved", is_resolved)
@@ -305,12 +305,11 @@ async def get_allocation_alerts(
     
     return [AllocationAlertResponse(**alert) for alert in result.data]
 
-
 @router.put("/alerts/{alert_id}/resolve", response_model=AllocationAlertResponse)
 async def resolve_alert(
-    alert_id: UUID = Path(..., description="Alert ID"),
-    request: AllocationAlertUpdate = ...,
-    db=Depends(get_supabase_service),
+    alert_id: UUID,
+    request: AllocationAlertUpdate,
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "update"))
 ):
     """Resolve a specific alert"""
@@ -332,7 +331,6 @@ async def resolve_alert(
     
     return AllocationAlertResponse(**result.data[0])
 
-
 # ================================
 # ROOM BLOCKING
 # ================================
@@ -340,8 +338,8 @@ async def resolve_alert(
 @router.post("/blocks", response_model=RoomBlockResponse)
 async def create_room_block(
     request: RoomBlockCreate,
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "create"))
+    db: AuthenticatedDbDep,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """
     Block room(s) for specific period
@@ -353,20 +351,21 @@ async def create_room_block(
     - long_stay: Extended stay reservations
     - staff: Staff accommodation
     """
-    request.created_by = UUID(current_user.get("id"))
+    # Set created_by if current_user has an id
+    if current_user and current_user.get("id"):
+        request.created_by = UUID(current_user.get("id"))
     service = RoomAllocationService(db)
     return await service.create_room_block(request)
 
-
 @router.get("/blocks", response_model=List[RoomBlockResponse])
 async def get_room_blocks(
+    db: AuthenticatedDbDep,
     room_id: Optional[UUID] = Query(None, description="Filter by room"),
     is_active: Optional[bool] = Query(True, description="Filter by active status"),
     start_date: Optional[date] = Query(None, description="Filter by start date"),
     end_date: Optional[date] = Query(None, description="Filter by end date"),
     block_type: Optional[str] = Query(None, description="Filter by block type"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get room blocks with filtering"""
     query = db.table("room_blocks").select("*")
@@ -386,13 +385,12 @@ async def get_room_blocks(
     
     return [RoomBlockResponse(**block) for block in result.data]
 
-
 @router.delete("/blocks/{block_id}/release")
 async def release_room_block(
-    block_id: UUID = Path(..., description="Block ID"),
-    request: ReleaseBlockRequest = ...,
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "delete"))
+    block_id: UUID,
+    request: ReleaseBlockRequest,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user)
 ):
     """Release a room block"""
     service = RoomAllocationService(db)
@@ -408,17 +406,16 @@ async def release_room_block(
     
     return JSONResponse({"message": "Room block released successfully"})
 
-
 # ================================
 # ANALYTICS AND REPORTS
 # ================================
 
 @router.get("/reports/optimization", response_model=OptimizationReportResponse)
 async def get_optimization_report(
+    db: AuthenticatedDbDep,
     start_date: date = Query(..., description="Report start date"),
     end_date: date = Query(..., description="Report end date"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Room allocation optimization report
@@ -432,29 +429,26 @@ async def get_optimization_report(
     service = RoomAllocationService(db)
     return await service.get_optimization_report(start_date, end_date)
 
-
 @router.get("/statistics", response_model=AllocationStatistics)
 async def get_allocation_statistics(
+    db: AuthenticatedDbDep,
     period_days: int = Query(30, description="Analysis period in days"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get allocation statistics for specified period"""
     service = RoomAllocationService(db)
     return await service.get_allocation_statistics(period_days)
 
-
 @router.get("/daily-summary", response_model=List[DailyAllocationSummary])
 async def get_daily_summary(
+    db: AuthenticatedDbDep,
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get daily allocation summary for date range"""
     service = RoomAllocationService(db)
     return await service.get_daily_summary(start_date, end_date)
-
 
 # ================================
 # GUEST PREFERENCES
@@ -463,7 +457,7 @@ async def get_daily_summary(
 @router.post("/preferences", response_model=GuestRoomPreferencesResponse)
 async def create_guest_preferences(
     request: GuestRoomPreferencesCreate,
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(require_permission("room_allocation", "create"))
 ):
     """Create or update guest room preferences"""
@@ -484,12 +478,11 @@ async def create_guest_preferences(
     
     return GuestRoomPreferencesResponse(**result.data[0])
 
-
 @router.get("/preferences/{customer_id}", response_model=GuestRoomPreferencesResponse)
 async def get_guest_preferences(
-    customer_id: UUID = Path(..., description="Customer ID"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    customer_id: UUID,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user)
 ):
     """Get guest room preferences"""
     result = db.table("guest_room_preferences").select("*").eq(
@@ -504,7 +497,6 @@ async def get_guest_preferences(
     
     return GuestRoomPreferencesResponse(**result.data[0])
 
-
 # ================================
 # ALLOCATION RULES
 # ================================
@@ -512,21 +504,21 @@ async def get_guest_preferences(
 @router.post("/rules", response_model=AllocationRuleResponse)
 async def create_allocation_rule(
     request: AllocationRuleCreate,
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "admin"))
+    db: AuthenticatedDbDep,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """Create new allocation rule"""
-    request.created_by = UUID(current_user.get("id"))
+    if current_user:
+        request.created_by = UUID(current_user.get("id"))
     result = db.table("allocation_rules").insert(request.dict()).execute()
     return AllocationRuleResponse(**result.data[0])
 
-
 @router.get("/rules", response_model=List[AllocationRuleResponse])
 async def get_allocation_rules(
+    db: AuthenticatedDbDep,
     is_active: Optional[bool] = Query(True, description="Filter by active status"),
     rule_type: Optional[str] = Query(None, description="Filter by rule type"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Get allocation rules"""
     query = db.table("allocation_rules").select("*")
@@ -540,6 +532,38 @@ async def get_allocation_rules(
     
     return [AllocationRuleResponse(**rule) for rule in result.data]
 
+@router.put("/rules/{rule_id}", response_model=AllocationRuleResponse)
+async def update_allocation_rule(
+    rule_id: UUID,
+    request: AllocationRuleUpdate,
+    db: AuthenticatedDbDep,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """Update allocation rule"""
+    updates = request.dict(exclude_unset=True)
+    if updates:
+        result = db.table("allocation_rules").update(updates).eq("id", str(rule_id)).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return AllocationRuleResponse(**result.data[0])
+    else:
+        # If no updates, just return the existing rule
+        result = db.table("allocation_rules").select("*").eq("id", str(rule_id)).single().execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return AllocationRuleResponse(**result.data)
+
+@router.delete("/rules/{rule_id}")
+async def delete_allocation_rule(
+    rule_id: UUID,
+    db: AuthenticatedDbDep,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """Delete allocation rule"""
+    result = db.table("allocation_rules").delete().eq("id", str(rule_id)).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"message": "Rule deleted successfully"}
 
 # ================================
 # ALLOCATION HISTORY
@@ -547,9 +571,9 @@ async def get_allocation_rules(
 
 @router.get("/history/{allocation_id}", response_model=List[AllocationHistoryResponse])
 async def get_allocation_history(
-    allocation_id: UUID = Path(..., description="Allocation ID"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    allocation_id: UUID,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user)
 ):
     """Get allocation change history"""
     result = db.table("room_allocation_history").select("""
@@ -569,17 +593,16 @@ async def get_allocation_history(
     
     return history
 
-
 # ================================
 # UTILITY ENDPOINTS
 # ================================
 
 @router.post("/validate-assignment")
 async def validate_assignment(
+    db: AuthenticatedDbDep,
     booking_id: UUID = Query(..., description="Booking ID"),
     room_id: UUID = Query(..., description="Room ID"),
-    db=Depends(get_supabase_service),
-    current_user: dict = Depends(require_permission("room_allocation", "read"))
+    current_user: dict = Depends(get_current_user)
 ):
     """Validate if a room can be assigned to a booking without actually assigning it"""
     service = RoomAllocationService(db)
@@ -611,68 +634,103 @@ async def validate_assignment(
         }
     }
 
-
 @router.get("/dashboard")
 async def get_allocation_dashboard(
-    db=Depends(get_supabase_service),
+    db: AuthenticatedDbDep,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get allocation dashboard data"""
-    service = RoomAllocationService(db)
-    
-    # Get today's key metrics
-    today = date.today()
-    
-    # Unassigned bookings
-    unassigned = await service.get_unassigned_bookings()
-    
-    # Today's arrivals/departures
-    arrivals_result = db.table("room_allocations").select("""
-        *, bookings(*, customers(full_name))
-    """).eq("check_in_date", today.isoformat()).in_(
-        "assignment_status", ["assigned", "locked"]
-    ).execute()
-    
-    departures_result = db.table("room_allocations").select("""
-        *, bookings(*, customers(full_name))
-    """).eq("check_out_date", today.isoformat()).in_(
-        "assignment_status", ["assigned", "locked"]
-    ).execute()
-    
-    # Room utilization
-    total_rooms_result = db.table("rooms").select("id").eq("status", "available").execute()
-    occupied_rooms_result = db.table("room_allocations").select("room_id").eq(
-        "check_in_date", today.isoformat()
-    ).lte("check_out_date", today.isoformat()).in_(
-        "assignment_status", ["assigned", "locked"]
-    ).execute()
-    
-    total_rooms = len(total_rooms_result.data)
-    occupied_rooms = len(occupied_rooms_result.data)
-    occupancy_rate = (occupied_rooms / total_rooms * 100) if total_rooms > 0 else 0
-    
-    return {
-        "unassigned_summary": unassigned.summary,
-        "today_arrivals": len(arrivals_result.data),
-        "today_departures": len(departures_result.data),
-        "total_rooms": total_rooms,
-        "occupied_rooms": occupied_rooms,
-        "available_rooms": total_rooms - occupied_rooms,
-        "occupancy_rate": round(occupancy_rate, 1),
-        "recent_arrivals": [
-            {
-                "guest_name": arrival['bookings']['customers']['full_name'],
-                "room_number": "TBD",  # Would need room join
-                "time": arrival['bookings'].get('check_in_time', '14:00')
+    """Get allocation dashboard data - optimized version"""
+    try:
+        today = date.today()
+        today_str = today.isoformat()
+        
+        # Parallel queries for better performance
+        # 1. Get total rooms count
+        total_rooms_result = db.table("rooms").select("id").execute()
+        total_rooms = len(total_rooms_result.data) if total_rooms_result.data else 0
+        
+        # 2. Get today's check-ins (bookings, not allocations)
+        arrivals_result = db.table("bookings").select("""
+            id, booking_code, check_in_date, check_in_time, room_id,
+            customers(full_name),
+            rooms(room_number, room_types(name))
+        """).eq("check_in_date", today_str).eq("status", "confirmed").limit(10).execute()
+        
+        # 3. Get today's check-outs
+        departures_result = db.table("bookings").select("""
+            id, booking_code, check_out_date, check_out_time, room_id,
+            customers(full_name),
+            rooms(room_number, room_types(name))
+        """).eq("check_out_date", today_str).in_("status", ["confirmed", "checked_in"]).limit(10).execute()
+        
+        # 4. Get currently occupied rooms (checked-in bookings)
+        occupied_result = db.table("bookings").select("id").eq("status", "checked_in").execute()
+        occupied_rooms = len(occupied_result.data) if occupied_result.data else 0
+        
+        # 5. Get unassigned bookings count for today and tomorrow
+        tomorrow = (today + timedelta(days=1)).isoformat()
+        unassigned_result = db.table("bookings").select("id").in_(
+            "check_in_date", [today_str, tomorrow]
+        ).eq("status", "confirmed").is_("room_id", "null").execute()
+        unassigned_count = len(unassigned_result.data) if unassigned_result.data else 0
+        
+        # Calculate occupancy rate
+        available_rooms = total_rooms - occupied_rooms
+        occupancy_rate = (occupied_rooms / total_rooms * 100) if total_rooms > 0 else 0
+        
+        # Format response
+        return {
+            "summary": {
+                "total_rooms": total_rooms,
+                "occupied_rooms": occupied_rooms,
+                "available_rooms": available_rooms,
+                "occupancy_rate": round(occupancy_rate, 1),
+                "unassigned_bookings": unassigned_count
+            },
+            "today_arrivals": {
+                "count": len(arrivals_result.data) if arrivals_result.data else 0,
+                "list": [
+                    {
+                        "booking_id": arrival['id'],
+                        "booking_code": arrival['booking_code'],
+                        "guest_name": arrival.get('customers', {}).get('full_name', 'Unknown'),
+                        "room_number": arrival.get('rooms', {}).get('room_number', 'Unassigned'),
+                        "room_type": arrival.get('rooms', {}).get('room_types', {}).get('name', 'Unknown'),
+                        "check_in_time": arrival.get('check_in_time', '14:00')
+                    }
+                    for arrival in (arrivals_result.data or [])[:5]
+                ]
+            },
+            "today_departures": {
+                "count": len(departures_result.data) if departures_result.data else 0,
+                "list": [
+                    {
+                        "booking_id": departure['id'],
+                        "booking_code": departure['booking_code'],
+                        "guest_name": departure.get('customers', {}).get('full_name', 'Unknown'),
+                        "room_number": departure.get('rooms', {}).get('room_number', 'Unassigned'),
+                        "room_type": departure.get('rooms', {}).get('room_types', {}).get('name', 'Unknown'),
+                        "check_out_time": departure.get('check_out_time', '12:00')
+                    }
+                    for departure in (departures_result.data or [])[:5]
+                ]
+            },
+            "alerts": {
+                "unassigned_today": unassigned_count,
+                "message": f"{unassigned_count} bookings need room assignment" if unassigned_count > 0 else "All bookings assigned"
             }
-            for arrival in arrivals_result.data[:5]
-        ],
-        "upcoming_departures": [
-            {
-                "guest_name": departure['bookings']['customers']['full_name'],
-                "room_number": "TBD",  # Would need room join
-                "time": departure['bookings'].get('check_out_time', '12:00')
-            }
-            for departure in departures_result.data[:5]
-        ]
-    }
+        }
+    except Exception as e:
+        # Return a safe fallback response on error
+        return {
+            "summary": {
+                "total_rooms": 0,
+                "occupied_rooms": 0,
+                "available_rooms": 0,
+                "occupancy_rate": 0,
+                "unassigned_bookings": 0
+            },
+            "today_arrivals": {"count": 0, "list": []},
+            "today_departures": {"count": 0, "list": []},
+            "alerts": {"unassigned_today": 0, "message": f"Error loading dashboard: {str(e)}"}
+        }

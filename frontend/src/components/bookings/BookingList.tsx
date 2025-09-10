@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -43,37 +44,69 @@ import {
   LogOut,
   Eye,
   Edit,
-  CreditCard
+  CreditCard,
+  Home,
+  Clock,
+  AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { bookingsApi, type Booking, type BookingListParams } from '@/lib/api/bookings'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useToast } from '@/hooks/use-toast'
+import { RecordDirectPaymentDialog } from '@/features/billing/components/RecordDirectPaymentDialog'
 
 interface BookingListProps {
   onViewBooking: (booking: Booking) => void
   onEditBooking: (booking: Booking) => void
   onCheckIn: (booking: Booking) => void
   onCheckOut: (booking: Booking) => void
+  onAssignRoom?: (booking: Booking) => void
 }
 
 export function BookingList({ 
   onViewBooking, 
   onEditBooking,
   onCheckIn,
-  onCheckOut 
+  onCheckOut,
+  onAssignRoom 
 }: BookingListProps) {
   const { t } = useLanguage()
   const { toast } = useToast()
+  const [activeTab, setActiveTab] = useState('all')
   const [filters, setFilters] = useState<BookingListParams>({
     page: 1,
     limit: 20
   })
   const [searchTerm, setSearchTerm] = useState('')
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
+  const [selectedBookingForPayment, setSelectedBookingForPayment] = useState<Booking | null>(null)
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+
+  // Update filters when tab changes
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab)
+    const statusFilter = tab === 'all' ? undefined : 
+                        tab === 'unassigned' ? 'confirmed' : 
+                        tab === 'in_house' ? 'checked_in' : tab
+    
+    // Create new filters object
+    const newFilters: BookingListParams = {
+      ...filters,
+      status: statusFilter as any,
+      page: 1
+    }
+    
+    // Remove room_id for most tabs, don't set it at all for unassigned
+    // Backend should handle filtering unassigned rooms based on status=confirmed and no room assigned
+    if (tab !== 'unassigned' && 'room_id' in newFilters) {
+      delete newFilters.room_id
+    }
+    
+    setFilters(newFilters)
+  }
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['bookings', filters],
+    queryKey: ['bookings', filters, activeTab],
     queryFn: () => bookingsApi.list(filters)
   })
 
@@ -148,6 +181,21 @@ export function BookingList({
     }
   }
 
+  const handleRecordPayment = (booking: Booking) => {
+    setSelectedBookingForPayment(booking)
+    setShowPaymentDialog(true)
+  }
+
+  const handlePaymentRecorded = () => {
+    setShowPaymentDialog(false)
+    setSelectedBookingForPayment(null)
+    refetch()
+    toast({
+      title: t('success'),
+      description: t('paymentRecorded')
+    })
+  }
+
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
@@ -181,75 +229,87 @@ export function BookingList({
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4 p-4 bg-white rounded-lg shadow">
-        <div className="flex-1 min-w-[200px]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder={t('searchByCodeNameEmail')}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              className="pl-10"
-            />
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="all" className="flex items-center gap-2">
+            {t('all')}
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            {t('pending')}
+          </TabsTrigger>
+          <TabsTrigger value="unassigned" className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            {t('unassigned')}
+          </TabsTrigger>
+          <TabsTrigger value="in_house" className="flex items-center gap-2">
+            <Home className="h-4 w-4" />
+            {t('inHouse')}
+          </TabsTrigger>
+          <TabsTrigger value="checked_out" className="flex items-center gap-2">
+            <LogOut className="h-4 w-4" />
+            {t('checkedOut')}
+          </TabsTrigger>
+          <TabsTrigger value="cancelled" className="flex items-center gap-2">
+            <XCircle className="h-4 w-4" />
+            {t('cancelled')}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={activeTab} className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-4 p-4 bg-white rounded-lg shadow">
+            <div className="flex-1 min-w-[200px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder={t('searchByCodeNameEmail')}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, 'MMM dd')} - {format(dateRange.to, 'MMM dd')}
+                      </>
+                    ) : (
+                      format(dateRange.from, 'MMM dd, yyyy')
+                    )
+                  ) : (
+                    <span>{t('selectDateRange')}</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={dateRange as any}
+                  onSelect={setDateRange as any}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <Button onClick={handleSearch}>{t('search')}</Button>
           </div>
-        </div>
 
-        <Select onValueChange={handleStatusFilter} defaultValue="all">
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder={t('allStatus')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('allStatus')}</SelectItem>
-            <SelectItem value="pending">{t('pending')}</SelectItem>
-            <SelectItem value="confirmed">{t('confirmed')}</SelectItem>
-            <SelectItem value="guaranteed">{t('guaranteed')}</SelectItem>
-            <SelectItem value="checked_in">{t('checkedIn')}</SelectItem>
-            <SelectItem value="checked_out">{t('checkedOut')}</SelectItem>
-            <SelectItem value="cancelled">{t('cancelled')}</SelectItem>
-            <SelectItem value="no_show">{t('noShow')}</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {dateRange.from ? (
-                dateRange.to ? (
-                  <>
-                    {format(dateRange.from, 'MMM dd')} - {format(dateRange.to, 'MMM dd')}
-                  </>
-                ) : (
-                  format(dateRange.from, 'MMM dd, yyyy')
-                )
-              ) : (
-                <span>{t('selectDateRange')}</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="range"
-              selected={dateRange as any}
-              onSelect={setDateRange as any}
-              numberOfMonths={2}
-            />
-          </PopoverContent>
-        </Popover>
-
-        <Button onClick={handleSearch}>{t('search')}</Button>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <Table>
+          {/* Table */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <Table>
           <TableHeader>
             <TableRow>
               <TableHead>{t('bookingCode')}</TableHead>
               <TableHead>{t('guest')}</TableHead>
-              <TableHead>{t('roomType')}</TableHead>
+              <TableHead>{t('assignedRoom') || 'Assigned Room'}</TableHead>
               <TableHead>{t('checkIn')}</TableHead>
               <TableHead>{t('checkOut')}</TableHead>
               <TableHead>{t('nights')}</TableHead>
@@ -291,7 +351,21 @@ export function BookingList({
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      {booking.room_id ? `Room ${booking.room_id}` : 'Not assigned'}
+                      {booking.room_id ? (
+                        <div className="flex items-center gap-1">
+                          <Home className="h-3 w-3 text-gray-400" />
+                          <span className="font-medium">
+                            {booking.room_number || `Room ${booking.room_id.slice(0, 8)}...`}
+                          </span>
+                          {booking.room_type && (
+                            <span className="text-xs text-gray-500 bg-gray-100 px-1 rounded">
+                              {booking.room_type}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 italic">{t('notAssigned') || 'Not assigned'}</span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -364,10 +438,18 @@ export function BookingList({
                         
                         {booking.status === 'confirmed' as any && (
                           <>
-                            <DropdownMenuItem onClick={() => onCheckIn(booking)}>
-                              <LogIn className="mr-2 h-4 w-4" />
-                              {t('checkIn')}
-                            </DropdownMenuItem>
+                            {!booking.room_id && onAssignRoom && (
+                              <DropdownMenuItem onClick={() => onAssignRoom(booking)}>
+                                <Home className="mr-2 h-4 w-4" />
+                                {t('assignRoom')}
+                              </DropdownMenuItem>
+                            )}
+                            {booking.room_id && (
+                              <DropdownMenuItem onClick={() => onCheckIn(booking)}>
+                                <LogIn className="mr-2 h-4 w-4" />
+                                {t('checkIn')}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleNoShow(booking)}>
                               <XCircle className="mr-2 h-4 w-4" />
                               {t('markNoShow')}
@@ -383,7 +465,7 @@ export function BookingList({
                         )}
                         
                         {booking.balance_due > 0 && (
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleRecordPayment(booking)}>
                             <CreditCard className="mr-2 h-4 w-4" />
                             {t('recordPayment')}
                           </DropdownMenuItem>
@@ -438,6 +520,19 @@ export function BookingList({
           </div>
         )}
       </div>
+        </TabsContent>
+      </Tabs>
+      
+      {/* Payment Recording Dialog */}
+      {selectedBookingForPayment && (
+        <RecordDirectPaymentDialog
+          open={showPaymentDialog}
+          onOpenChange={setShowPaymentDialog}
+          preselectedBooking={selectedBookingForPayment}
+          preselectedBookingId={selectedBookingForPayment.id}
+          onPaymentRecorded={handlePaymentRecorded}
+        />
+      )}
     </div>
   )
 }

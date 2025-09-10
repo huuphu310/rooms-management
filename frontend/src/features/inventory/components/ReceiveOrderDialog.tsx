@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { inventoryEnhancedApi } from '@/lib/api/inventory-enhanced'
 import type { PurchaseOrderEnhancedResponse } from '@/types/inventory-enhanced'
 import { Package, CheckCircle, AlertCircle } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface ReceiveOrderDialogProps {
   open: boolean
@@ -36,21 +38,32 @@ export function ReceiveOrderDialog({
   order, 
   onSuccess 
 }: ReceiveOrderDialogProps) {
-  const [receiveItems, setReceiveItems] = useState<ReceiveItem[]>(
-    order.items.map(item => ({
-      item_id: item.id,
-      product_name: item.product?.name || 'Unknown Product',
-      ordered_quantity: item.quantity,
-      received_quantity: item.received_quantity,
-      remaining_quantity: item.quantity - item.received_quantity,
-      new_received: Math.max(0, item.quantity - item.received_quantity),
-      batch_number: '',
-      expiry_date: '',
-      notes: ''
-    }))
-  )
+  const [receiveItems, setReceiveItems] = useState<ReceiveItem[]>([])
   const [loading, setLoading] = useState(false)
   const [notes, setNotes] = useState('')
+  
+  const { t } = useLanguage()
+  const { formatCurrency, convertFromVND } = useCurrency()
+
+  // Reset state when order changes or dialog opens
+  React.useEffect(() => {
+    if (open && order) {
+      setReceiveItems(
+        order.items.map(item => ({
+          item_id: item.id,
+          product_name: item.product?.name || 'Unknown Product',
+          ordered_quantity: item.quantity || 0,
+          received_quantity: item.received_quantity || 0,
+          remaining_quantity: (item.quantity || 0) - (item.received_quantity || 0),
+          new_received: Math.max(0, (item.quantity || 0) - (item.received_quantity || 0)),
+          batch_number: '',
+          expiry_date: '',
+          notes: ''
+        }))
+      )
+      setNotes('')
+    }
+  }, [open, order])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -65,9 +78,19 @@ export function ReceiveOrderDialog({
           received_quantity: item.new_received
         }))
 
+      // Allow marking as complete even if no items to receive (all items already received)
       if (itemsToReceive.length === 0) {
-        alert('Please specify quantities to receive')
-        return
+        // Check if all items are already complete
+        const allComplete = receiveItems.every(item => item.remaining_quantity === 0)
+        if (allComplete) {
+          // Still call the API to mark the order as complete
+          await inventoryEnhancedApi.receivePurchaseOrder(order.id, [])
+          onSuccess()
+          return
+        } else {
+          alert('Please specify quantities to receive')
+          return
+        }
       }
 
       await inventoryEnhancedApi.receivePurchaseOrder(order.id, itemsToReceive)
@@ -104,7 +127,7 @@ export function ReceiveOrderDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
-            Receive Order: {order.order_number}
+            {t('inventory.receiveOrder')}: {order.order_number}
           </DialogTitle>
         </DialogHeader>
 
@@ -113,7 +136,7 @@ export function ReceiveOrderDialog({
           <div className="grid grid-cols-3 gap-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Supplier</CardTitle>
+                <CardTitle className="text-sm">{t('inventory.supplier')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div>
@@ -125,7 +148,7 @@ export function ReceiveOrderDialog({
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Order Status</CardTitle>
+                <CardTitle className="text-sm">{t('inventory.orderStatus')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
@@ -141,7 +164,7 @@ export function ReceiveOrderDialog({
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Completion</CardTitle>
+                <CardTitle className="text-sm">{t('inventory.completion')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-2">
@@ -281,9 +304,11 @@ export function ReceiveOrderDialog({
             </Button>
             <Button 
               type="submit" 
-              disabled={loading || getTotalReceiving() === 0}
+              disabled={loading}
             >
-              {loading ? 'Processing...' : `Receive ${getTotalReceiving()} Items`}
+              {loading ? 'Processing...' : 
+                getTotalReceiving() === 0 ? 'Mark as Complete' : 
+                `Receive ${getTotalReceiving()} Items`}
             </Button>
           </div>
         </form>

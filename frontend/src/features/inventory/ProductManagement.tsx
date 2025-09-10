@@ -11,6 +11,8 @@ import { ProductForm } from './components/ProductForm'
 import { StockAdjustmentDialog } from './components/StockAdjustmentDialog'
 import type { ProductEnhancedResponse, ProductSearchParams, ProductStatus, StockStatus } from '@/types/inventory-enhanced'
 import { Search, Plus, Edit, Package, AlertCircle } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 export default function ProductManagement() {
   const [products, setProducts] = useState<ProductEnhancedResponse[]>([])
@@ -22,6 +24,8 @@ export default function ProductManagement() {
   const [selectedProduct, setSelectedProduct] = useState<ProductEnhancedResponse | null>(null)
   const [showProductDialog, setShowProductDialog] = useState(false)
   const [showStockDialog, setShowStockDialog] = useState(false)
+  const { t } = useLanguage()
+  const { formatCurrency, convertFromVND } = useCurrency()
 
   useEffect(() => {
     loadProducts()
@@ -66,34 +70,47 @@ export default function ProductManagement() {
   }
 
   const getStockStatusBadge = (status: StockStatus) => {
+    if (!status) return null
     const variants = {
       in_stock: 'default',
       low_stock: 'secondary',
       out_of_stock: 'destructive',
       discontinued: 'outline'
     }
-    return <Badge variant={variants[status] as any}>{status.replace('_', ' ')}</Badge>
+    const labels = {
+      in_stock: t('inventory.inStock'),
+      low_stock: t('inventory.lowStock'),
+      out_of_stock: t('inventory.outOfStock'),
+      discontinued: t('inventory.discontinued')
+    }
+    return <Badge variant={variants[status] as any}>{labels[status] || status}</Badge>
   }
 
   const getStatusBadge = (status: ProductStatus) => {
+    if (!status) return null
     const variants = {
       active: 'default',
       inactive: 'secondary',
       discontinued: 'destructive'
     }
-    return <Badge variant={variants[status] as any}>{status}</Badge>
+    const labels = {
+      active: t('inventory.active'),
+      inactive: t('inventory.inactive'),
+      discontinued: t('inventory.discontinued')
+    }
+    return <Badge variant={variants[status] as any}>{labels[status] || status}</Badge>
   }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Product Management</h2>
-          <p className="text-muted-foreground">Manage your product inventory and stock levels</p>
+          <h2 className="text-3xl font-bold tracking-tight">{t('inventory.productManagement')}</h2>
+          <p className="text-muted-foreground">{t('inventory.productManagementSubtitle')}</p>
         </div>
         <Button onClick={() => setShowProductDialog(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Product
+          {t('inventory.addProduct')}
         </Button>
       </div>
 
@@ -104,31 +121,31 @@ export default function ProductManagement() {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search products..."
+                placeholder={t('inventory.searchProducts')}
                 className="pl-10"
                 onChange={(e) => handleSearch(e.target.value)}
               />
             </div>
             <Select onValueChange={handleStatusFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Product Status" />
+                <SelectValue placeholder={t('inventory.productStatus')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-                <SelectItem value="discontinued">Discontinued</SelectItem>
+                <SelectItem value="all">{t('inventory.allStatus')}</SelectItem>
+                <SelectItem value="active">{t('inventory.active')}</SelectItem>
+                <SelectItem value="inactive">{t('inventory.inactive')}</SelectItem>
+                <SelectItem value="discontinued">{t('inventory.discontinued')}</SelectItem>
               </SelectContent>
             </Select>
             <Select onValueChange={handleStockStatusFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Stock Status" />
+                <SelectValue placeholder={t('inventory.stockStatus')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Stock</SelectItem>
-                <SelectItem value="in_stock">In Stock</SelectItem>
-                <SelectItem value="low_stock">Low Stock</SelectItem>
-                <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                <SelectItem value="all">{t('inventory.allStock')}</SelectItem>
+                <SelectItem value="in_stock">{t('inventory.inStock')}</SelectItem>
+                <SelectItem value="low_stock">{t('inventory.lowStock')}</SelectItem>
+                <SelectItem value="out_of_stock">{t('inventory.outOfStock')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -140,23 +157,23 @@ export default function ProductManagement() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
-            Products ({products.length})
+            {t('inventory.products')} ({products.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center h-32">Loading products...</div>
+            <div className="flex items-center justify-center h-32">{t('inventory.loadingProducts')}...</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('inventory.product')}</TableHead>
+                  <TableHead>{t('inventory.sku')}</TableHead>
+                  <TableHead>{t('inventory.category')}</TableHead>
+                  <TableHead>{t('inventory.stock')}</TableHead>
+                  <TableHead>{t('inventory.value')}</TableHead>
+                  <TableHead>{t('inventory.status')}</TableHead>
+                  <TableHead>{t('inventory.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -164,7 +181,7 @@ export default function ProductManagement() {
                   <TableRow key={product.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        {product.image_urls.length > 0 ? (
+                        {product.image_urls && product.image_urls.length > 0 ? (
                           <img 
                             src={product.image_urls[0]} 
                             alt={product.name}
@@ -188,7 +205,7 @@ export default function ProductManagement() {
                         {product.sku}
                       </code>
                     </TableCell>
-                    <TableCell>{product.category?.name || 'Uncategorized'}</TableCell>
+                    <TableCell>{product.category?.name || t('inventory.uncategorized')}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span className={
@@ -201,14 +218,14 @@ export default function ProductManagement() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Min: {product.min_stock_level}
+                        {t('inventory.min')}: {product.min_stock_level}
                       </p>
                     </TableCell>
                     <TableCell>
                       <div>
-                        <p className="font-medium">${product.stock_value.toFixed(2)}</p>
+                        <p className="font-medium">{formatCurrency(convertFromVND(Number(product.stock_value) || 0))}</p>
                         <p className="text-sm text-muted-foreground">
-                          Avg: ${product.average_cost.toFixed(2)}
+                          {t('inventory.avg')}: {formatCurrency(convertFromVND(Number(product.average_cost) || 0))}
                         </p>
                       </div>
                     </TableCell>
@@ -238,7 +255,7 @@ export default function ProductManagement() {
                             setShowStockDialog(true)
                           }}
                         >
-                          Adjust Stock
+                          {t('inventory.adjustStock')}
                         </Button>
                       </div>
                     </TableCell>

@@ -15,6 +15,8 @@ export interface RoomType {
   extra_adult_charge?: number;
   extra_child_charge?: number;
   extra_person_charge?: number; // Deprecated
+  extra_single_bed_charge?: number;
+  extra_double_bed_charge?: number;
   size_sqm?: number; // Deprecated
   size_sqm_from?: number;
   size_sqm_to?: number;
@@ -44,7 +46,10 @@ export interface Room {
   room_number: string;
   room_type_id: string;
   floor?: number;
-  building?: string;
+  building?: string;  // Deprecated - use building_id
+  building_id?: string;
+  building_name?: string;
+  building_code?: string;
   wing?: string;
   zone?: string;
   view_type?: RoomView;
@@ -87,6 +92,8 @@ export interface RoomCreateInput {
   room_number: string;
   room_type_id: string;
   floor: number;
+  building?: string;  // Deprecated - use building_id
+  building_id?: string;
   view_type?: string;
   status?: string;
   notes?: string;
@@ -96,6 +103,8 @@ export interface RoomUpdateInput {
   room_number?: string;
   room_type_id?: string;
   floor?: number;
+  building?: string;  // Deprecated - use building_id
+  building_id?: string;
   view_type?: string;
   status?: string;
   notes?: string;
@@ -203,6 +212,7 @@ export interface RoomFilters extends PaginationParams {
   floor?: number;
   room_type_id?: string;
   view_type?: string;
+  building?: string;
   search?: string;
 }
 
@@ -253,6 +263,7 @@ class RoomService {
       if (filters.floor !== undefined) cleanFilters.floor = filters.floor;
       if (filters.room_type_id && filters.room_type_id !== '') cleanFilters.room_type_id = filters.room_type_id;
       if (filters.view_type && filters.view_type !== '') cleanFilters.view_type = filters.view_type;
+      if (filters.building && filters.building !== '') cleanFilters.building = filters.building;
       if (filters.sort_by) cleanFilters.sort_by = filters.sort_by;
       if (filters.order) cleanFilters.order = filters.order;
       // Note: 'search' is not supported by the backend
@@ -281,7 +292,7 @@ class RoomService {
   }
 
   async updateRoomStatus(id: string, status: string, notes?: string): Promise<Room> {
-    const response = await api.patch(`/rooms/${id}/status`, { status, notes });
+    const response = await api.post(`/rooms/${id}/status`, { status, notes });
     return response.data;
   }
 

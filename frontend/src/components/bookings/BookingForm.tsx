@@ -34,6 +34,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { bookingsApi, type BookingCreate, type RoomAvailability } from '@/lib/api/bookings'
 import { customersApi, type Customer } from '@/lib/api/customers'
 import { pricingApi, type PriceCalculationResponse } from '@/lib/api/pricing'
@@ -43,6 +44,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useToast } from '@/hooks/use-toast'
+import { PermissionGuard } from '@/components/PermissionGuard'
+import { useAuthStore } from '@/stores/authStore'
 
 const bookingSchema = z.object({
   guest_name: z.string().min(1, 'Guest name is required'),
@@ -58,10 +61,6 @@ const bookingSchema = z.object({
   children: z.number().min(0),
   infants: z.number().min(0),
   room_rate: z.number().min(0),
-  extra_persons: z.number().min(0),
-  extra_person_charge: z.number().min(0),
-  extra_beds: z.number().min(0),
-  extra_bed_charge: z.number().min(0),
   service_charges: z.number().min(0),
   tax_percentage: z.number().min(0).max(100),
   tax_amount: z.number().min(0),
@@ -78,6 +77,8 @@ const bookingSchema = z.object({
   arrival_method: z.string().optional(),
   arrival_details: z.string().optional(),
   purpose_of_visit: z.string().optional(),
+  selected_currency: z.string().optional(),
+  exchange_rate: z.number().optional(),
 }).refine(data => data.check_out_date > data.check_in_date, {
   message: "Check-out date must be after check-in date",
   path: ["check_out_date"]
@@ -91,8 +92,28 @@ interface BookingFormProps {
 
 export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProps) {
   const { t } = useLanguage()
+  const { formatCurrency, getDisplayCurrencies, exchangeRates, availableCurrencies, convertFromVND } = useCurrency()
+  const { hasPermission } = useAuthStore()
+  
+  // Check if user has required permissions
+  const canCreateBookings = hasPermission('bookings.create')
+  const canAccessRooms = hasPermission('rooms.read')
+  
+  // If user doesn't have booking creation permission, show notification
+  if (!canCreateBookings) {
+    return (
+      <PermissionGuard 
+        permission="bookings.create" 
+        notificationVariant="inline"
+        customMessage={t('bookings.noPermissionToCreateBookings')}
+      >
+        <div />
+      </PermissionGuard>
+    )
+  }
   const [isLoading, setIsLoading] = useState(false)
   const [availability, setAvailability] = useState<RoomAvailability[]>([])
+  const [availabilityResponse, setAvailabilityResponse] = useState<{available: boolean, room_types: RoomAvailability[]} | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
   const [calculatingPrice, setCalculatingPrice] = useState(false)
   const [priceDetails, setPriceDetails] = useState<PriceCalculationResponse | null>(null)
@@ -106,14 +127,18 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
   
   const debouncedCustomerSearch = useDebounce(customerSearch, 500)
   const { toast } = useToast()
-
+  
+  // Only fetch room types if user has permission (reuse existing hasPermission from above)
+  const hasRoomPermission = hasPermission('rooms.read')
+  
   // Fetch room types
   const { data: roomTypes, isLoading: loadingRoomTypes } = useQuery({
     queryKey: ['roomTypes'],
     queryFn: async () => {
       const response = await roomService.getRoomTypes()
       return response.data
-    }
+    },
+    enabled: hasRoomPermission // Only fetch if user has permission
   })
 
   const form = useForm<z.infer<typeof bookingSchema>>({
@@ -132,12 +157,8 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
       children: initialData?.children || 0,
       infants: initialData?.infants || 0,
       room_rate: initialData?.room_rate || 0,
-      extra_persons: 0,
-      extra_person_charge: initialData?.extra_person_charge || 0,
-      extra_beds: 0,
-      extra_bed_charge: initialData?.extra_bed_charge || 0,
       service_charges: initialData?.service_charges || 0,
-      tax_percentage: 0,
+      tax_percentage: initialData?.tax_percentage ?? 10, // Default 10% VAT
       tax_amount: initialData?.tax_amount || 0,
       discount_type: 'percentage',
       discount_value: 0,
@@ -152,6 +173,8 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
       arrival_method: initialData?.arrival_method || '',
       arrival_details: initialData?.arrival_details || '',
       purpose_of_visit: initialData?.purpose_of_visit || 'leisure',
+      selected_currency: initialData?.selected_currency || 'VND',
+      exchange_rate: initialData?.exchange_rate || 1,
     }
   })
 
@@ -178,7 +201,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
   // When a customer is selected, fill in their details
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer)
-    form.setValue('guest_name', customer.name)
+    form.setValue('guest_name', customer.full_name || customer.name || '')
     form.setValue('guest_email', customer.email || '')
     form.setValue('guest_phone', customer.phone || '')
     form.setValue('guest_country', customer.country || '')
@@ -215,10 +238,24 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
       // Update form with calculated prices
       form.setValue('room_rate', response.base_price)
       form.setValue('extra_person_charge', response.extra_person_charge)
-      form.setValue('service_charges', 0) // Can be set manually
-      form.setValue('tax_amount', response.tax_amount)
+      
+      // Only set these if they haven't been manually set by user
+      if (form.getValues('service_charges') === 0) {
+        form.setValue('service_charges', 0)
+      }
+      
+      // Don't override tax if user has set it to 0 or another value
+      // Only set tax_amount for reference, actual tax calculation will be based on tax_percentage
+      if (form.getValues('tax_percentage') === undefined || form.getValues('tax_percentage') === null) {
+        form.setValue('tax_percentage', 10) // Default 10% VAT
+      }
+      
       form.setValue('discount_amount', response.discount_amount)
-      form.setValue('deposit_required', response.total_amount * 0.3) // 30% deposit by default
+      
+      // Only suggest deposit if not already set
+      if (!form.getValues('deposit_required') || form.getValues('deposit_required') === 0) {
+        form.setValue('deposit_required', response.total_amount * 0.3) // 30% deposit suggestion
+      }
       
       toast({
         title: t('common.success'),
@@ -227,13 +264,17 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
     } catch (error) {
       console.error('Failed to calculate price:', error)
       // If API fails, use room type base price
-      const selectedRoomType = roomTypes?.find(rt => rt.id === values.room_type_id)
+      const selectedRoomType = roomTypes?.find?.(rt => rt.id === values.room_type_id)
       if (selectedRoomType) {
         const nights = Math.ceil((values.check_out_date.getTime() - values.check_in_date.getTime()) / (1000 * 60 * 60 * 24))
         const roomTotal = selectedRoomType.base_price * nights
         
         form.setValue('room_rate', selectedRoomType.base_price)
-        form.setValue('deposit_required', roomTotal * 0.3)
+        
+        // Only suggest deposit if not already set
+        if (!form.getValues('deposit_required') || form.getValues('deposit_required') === 0) {
+          form.setValue('deposit_required', roomTotal * 0.3)
+        }
       }
     } finally {
       setCalculatingPrice(false)
@@ -245,10 +286,16 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
     const subscription = form.watch((value, { name }) => {
       if (name === 'room_type_id' || name === 'check_in_date' || name === 'check_out_date' || name === 'adults' || name === 'children') {
         calculatePrice()
+        
+        // Clear availability when dates or room type change (but not guest count)
+        if (['check_in_date', 'check_out_date', 'room_type_id'].includes(name || '') && availabilityResponse) {
+          setAvailabilityResponse(null)
+          setAvailability([])
+        }
       }
     })
     return () => subscription.unsubscribe()
-  }, [form.watch, roomTypes])
+  }, [form.watch, roomTypes, availabilityResponse])
 
   const checkAvailability = async () => {
     const values = form.getValues()
@@ -264,6 +311,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
         children: values.children
       })
       setAvailability(response.room_types)
+      setAvailabilityResponse(response)
       
       // Auto-select room type and rate if only one available
       if (response.room_types.length === 1) {
@@ -302,11 +350,21 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
         }
       }
       
+      // Calculate the deposit_required (30% of total) since we don't have an input field for it
+      const totals = calculateTotals()
+      
+      // Get current exchange rate for the selected currency
+      const selectedCurrency = values.selected_currency || 'VND'
+      const currentExchangeRate = selectedCurrency === 'VND' ? 1 : (exchangeRates[selectedCurrency] || 1)
+      
       const bookingData: BookingCreate = {
         ...values,
         customer_id: customerId,
         check_in_date: format(values.check_in_date, 'yyyy-MM-dd'),
         check_out_date: format(values.check_out_date, 'yyyy-MM-dd'),
+        deposit_required: totals.depositRequired, // Set the calculated deposit
+        selected_currency: selectedCurrency,
+        exchange_rate: currentExchangeRate, // Store the exchange rate at time of booking
       }
       await onSubmit(bookingData)
     } catch (error) {
@@ -330,7 +388,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
     )
     
     // Get selected room type for pricing info
-    const selectedRoomType = roomTypes?.find(rt => rt.id === values.room_type_id)
+    const selectedRoomType = roomTypes?.find?.(rt => rt.id === values.room_type_id)
     
     // Calculate room charge with weekend pricing
     let roomCharge = 0
@@ -356,9 +414,52 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
       weekdayNights = nights
     }
     
-    // Calculate extra charges based on quantity * price
-    const extraPersonTotal = (Number(values.extra_persons) || 0) * (Number(selectedRoomType?.extra_adult_charge) || 0) * nights
-    const extraBedTotal = (Number(values.extra_beds) || 0) * (Number(selectedRoomType?.extra_child_charge) || 0) * nights
+    // Calculate automatic extra bed charges based on guest count vs room occupancy
+    let extraSingleBeds = 0
+    let extraDoubleBeds = 0
+    let extraPersonTotal = 0
+    let extraBedTotal = 0
+    
+    if (selectedRoomType) {
+      const adults = Number(values.adults) || 0
+      const children = Number(values.children) || 0
+      const totalGuests = adults + children
+      
+      // Use new separate occupancy fields if available, fallback to old field
+      const standardAdultsOccupancy = (selectedRoomType as any).standard_adults_occupancy || selectedRoomType.standard_occupancy || 2
+      const standardChildrenOccupancy = (selectedRoomType as any).standard_children_occupancy || 0
+      const standardTotalOccupancy = standardAdultsOccupancy + standardChildrenOccupancy
+      
+      const maxOccupancy = selectedRoomType.max_occupancy || standardTotalOccupancy
+      const maxAdults = selectedRoomType.max_adults || maxOccupancy
+      const maxChildren = selectedRoomType.max_children || maxOccupancy
+      
+      // Calculate extra adults and children separately
+      const extraAdults = Math.max(0, adults - standardAdultsOccupancy)
+      const extraChildren = Math.max(0, children - standardChildrenOccupancy)
+      const totalExtraGuests = extraAdults + extraChildren
+      
+      // Only calculate if within max occupancy limits
+      if (totalGuests <= maxOccupancy && adults <= maxAdults && children <= maxChildren) {
+        
+        // Calculate extra person charges using separate adult and child rates
+        extraPersonTotal = (extraAdults * (selectedRoomType.extra_adult_charge || 0) + 
+                          extraChildren * (selectedRoomType.extra_child_charge || 0)) * nights
+        
+        // Calculate bed requirements for total extra guests
+        if (totalExtraGuests > 0) {
+          // Assign bed types: 1 extra person = single bed, 2+ extra persons = double bed
+          if (totalExtraGuests === 1) {
+            extraSingleBeds = 1
+            extraBedTotal = (selectedRoomType.extra_single_bed_charge || 0) * nights
+          } else if (totalExtraGuests >= 2) {
+            // For 2 or more extra guests, use double bed(s)
+            extraDoubleBeds = Math.ceil(totalExtraGuests / 2)
+            extraBedTotal = extraDoubleBeds * (selectedRoomType.extra_double_bed_charge || 0) * nights
+          }
+        }
+      }
+    }
     
     // Calculate subtotal
     const subtotal = roomCharge + extraPersonTotal + extraBedTotal + (Number(values.service_charges) || 0)
@@ -378,8 +479,8 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
     // Calculate total
     const total = taxableAmount + taxAmount
     
-    // Default deposit is 20% of total
-    const depositRequired = total * 0.2
+    // Default deposit is 30% of total
+    const depositRequired = total * 0.3
 
     return {
       nights,
@@ -388,6 +489,8 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
       roomCharge,
       extraPersonTotal,
       extraBedTotal,
+      extraSingleBeds,
+      extraDoubleBeds,
       subtotal,
       discountAmount,
       taxAmount,
@@ -442,14 +545,22 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                           className="p-2 hover:bg-gray-100 cursor-pointer rounded flex justify-between items-center"
                           onClick={() => selectCustomer(customer)}
                         >
-                          <div>
-                            <div className="font-medium">{customer.name}</div>
-                            <div className="text-sm text-gray-500">
-                              {customer.email && <span>{customer.email}</span>}
-                              {customer.phone && <span className="ml-2">{customer.phone}</span>}
+                          <div className="flex-1">
+                            <div className="font-medium">{customer.full_name || customer.name || 'Unknown Customer'}</div>
+                            <div className="text-sm text-gray-500 space-x-3">
+                              {customer.email && (
+                                <span>
+                                  <span className="font-medium">Email:</span> {customer.email}
+                                </span>
+                              )}
+                              {customer.phone && (
+                                <span>
+                                  <span className="font-medium">Phone:</span> {customer.phone}
+                                </span>
+                              )}
                             </div>
                           </div>
-                          {customer.is_vip && <Badge variant="secondary">VIP</Badge>}
+                          {customer.is_vip && <Badge variant="secondary" className="ml-2">VIP</Badge>}
                         </div>
                       ))}
                     </div>
@@ -458,11 +569,19 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   {/* Selected Customer */}
                   {selectedCustomer && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex justify-between items-center">
-                      <div>
-                        <div className="font-medium">{selectedCustomer.name}</div>
-                        <div className="text-sm text-gray-600">
-                          {selectedCustomer.email && <span>{selectedCustomer.email}</span>}
-                          {selectedCustomer.phone && <span className="ml-2">{selectedCustomer.phone}</span>}
+                      <div className="flex-1">
+                        <div className="font-medium">{selectedCustomer.full_name || selectedCustomer.name || 'Unknown Customer'}</div>
+                        <div className="text-sm text-gray-600 space-x-3">
+                          {selectedCustomer.email && (
+                            <span>
+                              <span className="font-medium">Email:</span> {selectedCustomer.email}
+                            </span>
+                          )}
+                          {selectedCustomer.phone && (
+                            <span>
+                              <span className="font-medium">Phone:</span> {selectedCustomer.phone}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <Button
@@ -495,6 +614,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 {(showNewCustomer || selectedCustomer) && (
                   <div className="grid grid-cols-2 gap-4">
                 <FormField
+                  key="guest_name"
                   control={form.control}
                   name="guest_name"
                   render={({ field }) => (
@@ -509,6 +629,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 />
 
                 <FormField
+                  key="guest_email"
                   control={form.control}
                   name="guest_email"
                   render={({ field }) => (
@@ -526,6 +647,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 />
 
                 <FormField
+                  key="guest_phone"
                   control={form.control}
                   name="guest_phone"
                   render={({ field }) => (
@@ -543,6 +665,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 />
 
                 <FormField
+                  key="guest_country"
                   control={form.control}
                   name="guest_country"
                   render={({ field }) => (
@@ -557,6 +680,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 />
 
                 <FormField
+                  key="adults"
                   control={form.control}
                   name="adults"
                   render={({ field }) => (
@@ -575,6 +699,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 />
 
                 <FormField
+                  key="children"
                   control={form.control}
                   name="children"
                   render={({ field }) => (
@@ -604,8 +729,43 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 <CardDescription>{t('bookings.selectDatesAndRoom')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Currency Selection */}
+                <FormField
+                  key="selected_currency"
+                  control={form.control}
+                  name="selected_currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('common.currency')}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="w-full min-w-0">
+                            <SelectValue placeholder={t('common.selectCurrency')} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {getDisplayCurrencies().map((currencyCode) => {
+                            const currencyInfo = availableCurrencies.find(c => c.code === currencyCode)
+                            if (!currencyInfo) return null
+                            return (
+                              <SelectItem key={currencyInfo.code} value={currencyInfo.code}>
+                                {currencyInfo.code} - {currencyInfo.name}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {t('bookings.currencyDescription')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
+                    key="check_in_date"
                     control={form.control}
                     name="check_in_date"
                     render={({ field }) => (
@@ -647,6 +807,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="check_out_date"
                     control={form.control}
                     name="check_out_date"
                     render={({ field }) => (
@@ -689,6 +850,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="check_in_time"
                     control={form.control}
                     name="check_in_time"
                     render={({ field }) => (
@@ -703,6 +865,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="check_out_time"
                     control={form.control}
                     name="check_out_time"
                     render={({ field }) => (
@@ -718,66 +881,101 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                 </div>
 
                 {/* Room Type Selection */}
-                <FormField
-                  control={form.control}
-                  name="room_type_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('bookings.roomType')} *</FormLabel>
-                      <Select 
-                        onValueChange={field.onChange} 
-                        value={field.value}
-                        disabled={loadingRoomTypes}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t('bookings.selectRoomType')} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {roomTypes?.map((roomType) => (
-                            <SelectItem 
-                              key={roomType.id} 
-                              value={roomType.id}
-                            >
-                              <div className="flex justify-between items-center w-full">
-                                <div>
-                                  <span className="font-medium">{roomType.name}</span>
-                                  <span className="text-sm text-muted-foreground ml-2">
-                                    ({roomType.standard_occupancy} {t('bookings.guests')}, max {roomType.max_occupancy})
+                {canAccessRooms ? (
+                  <FormField
+                    key="room_type_id"
+                    control={form.control}
+                    name="room_type_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('bookings.roomType')} *</FormLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          value={field.value}
+                          disabled={loadingRoomTypes}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('bookings.selectRoomType')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {roomTypes?.map((roomType) => (
+                              <SelectItem 
+                                key={roomType.id} 
+                                value={roomType.id}
+                              >
+                                <div className="flex justify-between items-center w-full">
+                                  <div>
+                                    <span className="font-medium">{roomType.name}</span>
+                                    <span className="text-sm text-muted-foreground ml-2">
+                                      ({roomType.standard_occupancy} {t('bookings.guests')}, max {roomType.max_occupancy})
+                                    </span>
+                                  </div>
+                                  <span className="text-sm font-medium ml-4">
+                                    {(() => {
+                                      const selectedCurrency = form.watch('selected_currency') || 'VND'
+                                      const convertedPrice = selectedCurrency === 'VND' 
+                                        ? roomType.base_price 
+                                        : convertFromVND(roomType.base_price, selectedCurrency)
+                                      return formatCurrency(convertedPrice, selectedCurrency)
+                                    })()}
                                   </span>
                                 </div>
-                                <span className="text-sm font-medium ml-4">
-                                  {t('common.currency')} {roomType.base_price.toLocaleString()}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        {t('bookings.selectRoomTypeDescription')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {t('bookings.selectRoomTypeDescription')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t('bookings.roomType')} *</label>
+                    <PermissionGuard 
+                      permission="rooms.read" 
+                      notificationVariant="inline"
+                      customMessage={t('bookings.noPermissionToAccessRooms')}
+                    >
+                      <div />
+                    </PermissionGuard>
+                  </div>
+                )}
 
-                <Button 
-                  type="button" 
-                  onClick={checkAvailability}
-                  disabled={checkingAvailability || !form.watch('room_type_id')}
-                  className="w-full"
-                  variant="outline"
-                >
-                  {checkingAvailability && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {t('bookings.checkAvailability')}
-                </Button>
+                {canAccessRooms && (
+                  <Button 
+                    type="button" 
+                    onClick={checkAvailability}
+                    disabled={checkingAvailability || !form.watch('room_type_id')}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    {checkingAvailability && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {t('bookings.checkAvailability')}
+                  </Button>
+                )}
 
-                {availability.length > 0 && (
-                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <p className="text-sm text-green-700 dark:text-green-400">
-                      {t('bookings.availabilityConfirmed')}
+                {availabilityResponse && (
+                  <div className={`p-4 rounded-lg ${
+                    availabilityResponse.available && availability.some(room => room.can_book)
+                      ? 'bg-green-50 dark:bg-green-900/20'
+                      : 'bg-red-50 dark:bg-red-900/20'
+                  }`}>
+                    <p className={`text-sm ${
+                      availabilityResponse.available && availability.some(room => room.can_book)
+                        ? 'text-green-700 dark:text-green-400'
+                        : 'text-red-700 dark:text-red-400'
+                    }`}>
+                      {availabilityResponse.available && availability.some(room => room.can_book)
+                        ? t('bookings.availabilityConfirmed')
+                        : !availabilityResponse.available
+                        ? 'No rooms available for selected dates and guest count'
+                        : 'Rooms exist but cannot accommodate the requested number of guests'
+                      }
                     </p>
                   </div>
                 )}
@@ -792,6 +990,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
               priceDetails={priceDetails}
               calculatingPrice={calculatingPrice}
               t={t}
+              selectedCurrency={form.watch('selected_currency') || 'VND'}
             />
           </TabsContent>
 
@@ -804,6 +1003,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
+                    key="source"
                     control={form.control}
                     name="source"
                     render={({ field }) => (
@@ -830,6 +1030,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="channel"
                     control={form.control}
                     name="channel"
                     render={({ field }) => (
@@ -844,6 +1045,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="purpose_of_visit"
                     control={form.control}
                     name="purpose_of_visit"
                     render={({ field }) => (
@@ -868,6 +1070,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="arrival_method"
                     control={form.control}
                     name="arrival_method"
                     render={({ field }) => (
@@ -893,6 +1096,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="arrival_details"
                     control={form.control}
                     name="arrival_details"
                     render={({ field }) => (
@@ -907,6 +1111,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="special_requests"
                     control={form.control}
                     name="special_requests"
                     render={({ field }) => (
@@ -921,6 +1126,7 @@ export function BookingForm({ onSubmit, onCancel, initialData }: BookingFormProp
                   />
 
                   <FormField
+                    key="dietary_requirements"
                     control={form.control}
                     name="dietary_requirements"
                     render={({ field }) => (

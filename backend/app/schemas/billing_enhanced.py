@@ -260,7 +260,7 @@ class PaymentResponse(PaymentBase):
     id: UUID
     payment_code: str
     invoice_id: Optional[UUID] = None
-    booking_id: UUID
+    booking_id: Optional[UUID] = None  # Changed from UUID to Optional[UUID]
     payment_date: datetime
     payment_status: PaymentStatus
     original_payment_id: Optional[UUID] = None
@@ -292,6 +292,29 @@ class RecordDepositPayment(BaseModel):
     payment_method: PaymentMethod
     reference_number: Optional[str] = None
     payment_details: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+class RecordDirectPayment(BaseModel):
+    """Schema for recording direct payments not tied to an invoice"""
+    amount: Decimal = Field(..., gt=0)
+    payment_method: PaymentMethod
+    payment_date: date
+    transaction_reference: Optional[str] = Field(None, max_length=100)
+    notes: Optional[str] = None
+    invoice_id: Optional[UUID] = None
+    booking_id: Optional[UUID] = None
+    customer_id: Optional[UUID] = None
+    payment_for: Optional[str] = Field(None, max_length=200)  # Description of what payment is for
+
+
+class RecordPayment(BaseModel):
+    """Schema for recording payment against an invoice"""
+    invoice_id: UUID
+    amount: Decimal = Field(..., gt=0)
+    payment_method: PaymentMethod
+    payment_date: date
+    transaction_reference: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
 
 
@@ -574,6 +597,7 @@ class RevenueReport(BaseModel):
 # Search Parameters
 class InvoiceSearchParams(BaseModel):
     booking_id: Optional[UUID] = None
+    booking_code: Optional[str] = None
     customer_id: Optional[UUID] = None
     invoice_type: Optional[InvoiceType] = None
     status: Optional[InvoiceStatus] = None

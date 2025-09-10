@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,29 +7,60 @@ import InventoryDashboard from './InventoryDashboard'
 import ProductManagement from './ProductManagement'
 import PurchaseOrderManagement from './PurchaseOrderManagement'
 import { BarChart3, Package, ShoppingCart, Clipboard, Beaker, TrendingUp, Plus, AlertCircle } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useCurrency } from '@/contexts/CurrencyContext'
+import { inventoryEnhancedApi } from '@/lib/api/inventory-enhanced'
 
 export default function InventoryEnhanced() {
   const [activeTab, setActiveTab] = useState('dashboard')
+  const { t } = useLanguage()
+  const { formatCurrency, convertFromVND } = useCurrency()
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    products: 0,
+    lowStock: 0,
+    orders: 0,
+    recipes: 0
+  })
 
-  // Mock data for quick stats in tabs
-  const quickStats = {
-    products: 156,
-    lowStock: 12,
-    orders: 8,
-    recipes: 24
+  useEffect(() => {
+    loadStatistics()
+  }, [])
+
+  const loadStatistics = async () => {
+    try {
+      setLoading(true)
+      // Load products count and low stock count
+      const [products, orders, dashboard] = await Promise.all([
+        inventoryEnhancedApi.getProducts({ limit: 1 }),
+        inventoryEnhancedApi.getPurchaseOrders({ status: 'pending', limit: 1 }),
+        inventoryEnhancedApi.getDashboardData()
+      ])
+      
+      setStats({
+        products: dashboard.total_products || 0,
+        lowStock: dashboard.low_stock_products || 0,
+        orders: dashboard.purchase_orders_pending || 0,
+        recipes: 24 // This would come from a recipes API when available
+      })
+    } catch (error) {
+      console.error('Failed to load statistics:', error)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight">Enhanced Inventory System</h1>
+          <h1 className="text-4xl font-bold tracking-tight">{t('inventory.enhancedTitle')}</h1>
           <p className="text-muted-foreground mt-1">
-            Comprehensive inventory management with advanced features
+            {t('inventory.enhancedSubtitle')}
           </p>
         </div>
         <Badge variant="default" className="bg-green-600">
-          Enhanced Features
+          {t('inventory.enhancedFeatures')}
         </Badge>
       </div>
 
@@ -38,25 +69,25 @@ export default function InventoryEnhanced() {
         <Card className="cursor-pointer hover:shadow-md transition-shadow" 
               onClick={() => setActiveTab('dashboard')}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Dashboard</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.dashboard')}</CardTitle>
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">Overview</div>
-            <p className="text-xs text-muted-foreground">Analytics & insights</p>
+            <div className="text-2xl font-bold">{t('inventory.overview')}</div>
+            <p className="text-xs text-muted-foreground">{t('inventory.analyticsInsights')}</p>
           </CardContent>
         </Card>
 
         <Card className="cursor-pointer hover:shadow-md transition-shadow" 
               onClick={() => setActiveTab('products')}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Products</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.products')}</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{quickStats.products}</div>
+            <div className="text-2xl font-bold">{stats.products}</div>
             <p className="text-xs text-muted-foreground">
-              {quickStats.lowStock} low stock
+              {stats.lowStock} {t('inventory.lowStock')}
             </p>
           </CardContent>
         </Card>
@@ -64,24 +95,24 @@ export default function InventoryEnhanced() {
         <Card className="cursor-pointer hover:shadow-md transition-shadow" 
               onClick={() => setActiveTab('orders')}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Purchase Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.purchaseOrders')}</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{quickStats.orders}</div>
-            <p className="text-xs text-muted-foreground">Pending approval</p>
+            <div className="text-2xl font-bold">{stats.orders}</div>
+            <p className="text-xs text-muted-foreground">{t('inventory.pendingApproval')}</p>
           </CardContent>
         </Card>
 
         <Card className="cursor-pointer hover:shadow-md transition-shadow" 
               onClick={() => setActiveTab('recipes')}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recipes & BOM</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('inventory.recipesBOM')}</CardTitle>
             <Beaker className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{quickStats.recipes}</div>
-            <p className="text-xs text-muted-foreground">Active recipes</p>
+            <div className="text-2xl font-bold">{stats.recipes}</div>
+            <p className="text-xs text-muted-foreground">{t('inventory.activeRecipes')}</p>
           </CardContent>
         </Card>
       </div>
@@ -91,27 +122,27 @@ export default function InventoryEnhanced() {
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="dashboard" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
-            Dashboard
+            {t('inventory.tabDashboard')}
           </TabsTrigger>
           <TabsTrigger value="products" className="flex items-center gap-2">
             <Package className="h-4 w-4" />
-            Products
+            {t('inventory.tabProducts')}
           </TabsTrigger>
           <TabsTrigger value="orders" className="flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
-            Orders
+            {t('inventory.tabOrders')}
           </TabsTrigger>
           <TabsTrigger value="recipes" className="flex items-center gap-2">
             <Beaker className="h-4 w-4" />
-            Recipes
+            {t('inventory.tabRecipes')}
           </TabsTrigger>
           <TabsTrigger value="reports" className="flex items-center gap-2">
             <Clipboard className="h-4 w-4" />
-            Reports
+            {t('inventory.tabReports')}
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
-            Analytics
+            {t('inventory.tabAnalytics')}
           </TabsTrigger>
         </TabsList>
 
@@ -132,19 +163,19 @@ export default function InventoryEnhanced() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Beaker className="h-5 w-5" />
-                Recipe & BOM Management
+                {t('inventory.recipeBOMManagement')}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-center py-12">
                 <Beaker className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">Recipe Management</h3>
+                <h3 className="text-lg font-medium mb-2">{t('inventory.recipeManagement')}</h3>
                 <p className="text-muted-foreground mb-4">
-                  Create and manage recipes with bill of materials for food production and inventory consumption tracking.
+                  {t('inventory.recipeDescription')}
                 </p>
                 <Button>
                   <Plus className="mr-2 h-4 w-4" />
-                  Create Recipe
+                  {t('inventory.createRecipe')}
                 </Button>
               </div>
             </CardContent>
@@ -157,14 +188,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Package className="h-5 w-5" />
-                  Stock Valuation Report
+                  {t('inventory.stockValuationReport')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Detailed inventory valuation using FIFO, LIFO, or average cost methods.
+                  {t('inventory.stockValuationDescription')}
                 </p>
-                <Button size="sm" variant="outline">Generate Report</Button>
+                <Button size="sm" variant="outline">{t('inventory.generateReport')}</Button>
               </CardContent>
             </Card>
 
@@ -172,14 +203,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  Movement Analysis
+                  {t('inventory.movementAnalysis')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Track product movements, consumption patterns, and velocity.
+                  {t('inventory.movementAnalysisDescription')}
                 </p>
-                <Button size="sm" variant="outline">Generate Report</Button>
+                <Button size="sm" variant="outline">{t('inventory.generateReport')}</Button>
               </CardContent>
             </Card>
 
@@ -187,14 +218,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <ShoppingCart className="h-5 w-5" />
-                  Purchase Analysis
+                  {t('inventory.purchaseAnalysis')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Analyze purchase orders, supplier performance, and cost trends.
+                  {t('inventory.purchaseAnalysisDescription')}
                 </p>
-                <Button size="sm" variant="outline">Generate Report</Button>
+                <Button size="sm" variant="outline">{t('inventory.generateReport')}</Button>
               </CardContent>
             </Card>
 
@@ -202,14 +233,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Clipboard className="h-5 w-5" />
-                  ABC Analysis
+                  {t('inventory.abcAnalysis')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Categorize inventory items based on consumption value and importance.
+                  {t('inventory.abcAnalysisDescription')}
                 </p>
-                <Button size="sm" variant="outline">Generate Report</Button>
+                <Button size="sm" variant="outline">{t('inventory.generateReport')}</Button>
               </CardContent>
             </Card>
 
@@ -217,14 +248,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <AlertCircle className="h-5 w-5" />
-                  Expiry & Batch Report
+                  {t('inventory.expiryBatchReport')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Track expiring items, batch numbers, and quality control.
+                  {t('inventory.expiryBatchDescription')}
                 </p>
-                <Button size="sm" variant="outline">Generate Report</Button>
+                <Button size="sm" variant="outline">{t('inventory.generateReport')}</Button>
               </CardContent>
             </Card>
 
@@ -232,14 +263,14 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <BarChart3 className="h-5 w-5" />
-                  Custom Reports
+                  {t('inventory.customReports')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Create custom reports with flexible filters and data export.
+                  {t('inventory.customReportsDescription')}
                 </p>
-                <Button size="sm" variant="outline">Create Custom</Button>
+                <Button size="sm" variant="outline">{t('inventory.createCustom')}</Button>
               </CardContent>
             </Card>
           </div>
@@ -251,26 +282,26 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  Inventory Performance
+                  {t('inventory.inventoryPerformance')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span>Turnover Ratio</span>
+                    <span>{t('inventory.turnoverRatio')}</span>
                     <Badge variant="default">8.5x</Badge>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Stock Accuracy</span>
+                    <span>{t('inventory.stockAccuracy')}</span>
                     <Badge variant="default" className="bg-green-600">97.2%</Badge>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Carrying Cost</span>
-                    <Badge variant="secondary">$12,450</Badge>
+                    <span>{t('inventory.carryingCost')}</span>
+                    <Badge variant="secondary">{formatCurrency(convertFromVND(12450000))}</Badge>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span>Dead Stock Value</span>
-                    <Badge variant="destructive">$2,100</Badge>
+                    <span>{t('inventory.deadStockValue')}</span>
+                    <Badge variant="destructive">{formatCurrency(convertFromVND(2100000))}</Badge>
                   </div>
                 </div>
               </CardContent>
@@ -280,24 +311,24 @@ export default function InventoryEnhanced() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="h-5 w-5" />
-                  Forecasting
+                  {t('inventory.forecasting')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <h4 className="font-medium mb-2">Demand Forecasting</h4>
+                    <h4 className="font-medium mb-2">{t('inventory.demandForecasting')}</h4>
                     <p className="text-sm text-muted-foreground">
-                      AI-powered demand prediction based on historical data and seasonal trends.
+                      {t('inventory.demandForecastingDescription')}
                     </p>
                   </div>
                   <div>
-                    <h4 className="font-medium mb-2">Reorder Suggestions</h4>
+                    <h4 className="font-medium mb-2">{t('inventory.reorderSuggestions')}</h4>
                     <p className="text-sm text-muted-foreground">
-                      Smart reorder recommendations to optimize stock levels and reduce costs.
+                      {t('inventory.reorderSuggestionsDescription')}
                     </p>
                   </div>
-                  <Button size="sm" variant="outline">View Forecasts</Button>
+                  <Button size="sm" variant="outline">{t('inventory.viewForecasts')}</Button>
                 </div>
               </CardContent>
             </Card>

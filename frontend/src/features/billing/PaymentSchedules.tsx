@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,9 +13,13 @@ export default function PaymentSchedules() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all')
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => {
-    loadSchedules()
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true
+      loadSchedules()
+    }
   }, [])
 
   const loadSchedules = async () => {
