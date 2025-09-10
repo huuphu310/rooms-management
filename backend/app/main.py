@@ -44,8 +44,36 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Disable automatic redirect from /path to /path/
+    redirect_slashes=False
 )
+
+# Add ProxyHeaders middleware to handle HTTPS behind proxy (Cloudflare)
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class ProxyHeadersMiddleware(BaseHTTPMiddleware):
+    """Handle proxy headers to preserve HTTPS scheme"""
+    async def dispatch(self, request: Request, call_next):
+        # Check for proxy headers
+        x_forwarded_proto = request.headers.get("x-forwarded-proto")
+        x_forwarded_host = request.headers.get("x-forwarded-host")
+        
+        # Update scheme if behind HTTPS proxy
+        if x_forwarded_proto:
+            request.scope["scheme"] = x_forwarded_proto
+        
+        # Update host if provided by proxy
+        if x_forwarded_host:
+            request.scope["server"] = (x_forwarded_host, 443 if x_forwarded_proto == "https" else 80)
+        
+        response = await call_next(request)
+        return response
+
+# Add proxy headers middleware first (before CORS)
+app.add_middleware(ProxyHeadersMiddleware)
 
 # Set up CORS
 if settings.BACKEND_CORS_ORIGINS:

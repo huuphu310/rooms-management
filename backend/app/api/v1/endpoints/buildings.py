@@ -40,7 +40,8 @@ async def create_building(
     dal = BuildingsDAL(db)
     return await dal.create_building(ctx, building)
 
-@router.get("/", response_model=BuildingListResponse)
+@router.get("", response_model=BuildingListResponse)
+@router.get("/", response_model=BuildingListResponse, include_in_schema=False)
 async def get_buildings(
     db: SupabaseService = Depends(get_supabase_service),
     page: int = Query(1, ge=1),
