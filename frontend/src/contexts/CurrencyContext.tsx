@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import CurrencyManager from '@/lib/currency';
-import type { CurrencyInfo } from '@/lib/currency';
+import CurrencyManager from '../lib/currency';
+import type { CurrencyInfo } from '../lib/currency';
 
 interface CurrencyContextType {
   currentCurrency: string;
