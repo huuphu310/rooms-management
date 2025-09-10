@@ -12,6 +12,9 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY . .
 
+# Debug: Check if currency.ts file exists
+RUN ls -la src/lib/ || echo "lib directory not found"
+
 # Build arguments for Vite environment variables
 ARG VITE_API_URL
 ARG VITE_SUPABASE_URL
