@@ -1156,7 +1156,7 @@ export const translations = {
       general: 'Chung',
       language: 'Ngôn ngữ & Khu vực',
       currency: 'Cài đặt tiền tệ',
-      exchangeRates: 'Tỷ giá hối đoái',
+      exchangeRates: 'Tỷ giá',
       baseCurrency: 'Tiền tệ gốc',
       targetCurrency: 'Tiền tệ đích',
       rate: 'Tỷ giá',
@@ -1259,7 +1259,7 @@ export const translations = {
       reports: 'Báo cáo',
       userManagement: 'Quản lý người dùng',
       bankAccounts: 'Tài khoản ngân hàng',
-      exchangeRates: 'Tỷ giá hối đoái',
+      exchangeRates: 'Tỷ giá',
       logout: 'Đăng xuất'
     },
     roomAllocation: {
@@ -1285,7 +1285,7 @@ export const translations = {
       
       // Tabs
       dashboard: 'Bảng điều khiển',
-      roomGrid: 'Lưới phòng',
+      roomGrid: 'Phòng',
       unassignedTab: 'Chưa phân phòng',
       blocks: 'Khóa phòng',
       reports: 'Báo cáo',

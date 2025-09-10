@@ -30,7 +30,26 @@ export default function Customers() {
         limit: 100  // Get more customers in one request
       });
       
-      setCustomers(response.data || []);
+      // The API returns { data: [...], total: number, page: number, limit: number }
+      // Extract the customers array from the data property
+      if (response && response.data && Array.isArray(response.data)) {
+        // Add status field if missing (derive from is_active or set default)
+        const customersWithStatus = response.data.map(customer => ({
+          ...customer,
+          status: customer.status || (customer.is_active ? 'active' : 'inactive')
+        }));
+        setCustomers(customersWithStatus);
+      } else if (Array.isArray(response)) {
+        // Fallback if response is directly an array
+        const customersWithStatus = response.map(customer => ({
+          ...customer,
+          status: customer.status || (customer.is_active ? 'active' : 'inactive')
+        }));
+        setCustomers(customersWithStatus);
+      } else {
+        console.warn('Unexpected response structure:', response);
+        setCustomers([]);
+      }
     } catch (error) {
       console.error('Error fetching customers:', error);
       setCustomers([]); // Ensure customers is always an array
@@ -41,9 +60,9 @@ export default function Customers() {
 
   const filteredCustomers = Array.isArray(customers) 
     ? customers.filter(customer =>
-        customer.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.phone.includes(searchTerm)
+        customer.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.phone && customer.phone.includes(searchTerm))
       )
     : [];
 
