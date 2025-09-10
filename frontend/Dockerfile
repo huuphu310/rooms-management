@@ -22,8 +22,10 @@ ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
-# Fix rollup dependency issue for ARM64 Alpine
-RUN npm install @rollup/rollup-linux-arm64-musl --save-optional || true
+# Fix rollup dependency issue for different architectures
+# Install platform-specific rollup based on architecture
+RUN npm install @rollup/rollup-linux-x64-musl --save-optional || true && \
+    npm install @rollup/rollup-linux-arm64-musl --save-optional || true
 
 # Build the application (skip TypeScript checking for Docker build)
 RUN npx vite build
