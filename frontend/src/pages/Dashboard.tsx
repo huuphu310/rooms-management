@@ -12,6 +12,7 @@ import {
   CreditCard
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { customerService } from '@/services/customerService';
 
 interface DashboardStats {
   totalRooms: number;
@@ -69,9 +70,7 @@ export default function Dashboard() {
         .select('id')
         .eq('check_out_date', today);
 
-      const { data: customers } = await supabase
-        .from('customers')
-        .select('id', { count: 'exact' });
+      const customersResponse = await customerService.getCustomers({ limit: 1 });
 
       const { data: todayPayments } = await supabase
         .from('payments')
@@ -98,7 +97,7 @@ export default function Dashboard() {
           availableRooms: available,
           todayCheckIns: checkIns?.length || 0,
           todayCheckOuts: checkOuts?.length || 0,
-          totalCustomers: customers?.length || 0,
+          totalCustomers: customersResponse?.pagination?.total || 0,
           todayRevenue: todayPayments?.reduce((sum, p) => sum + p.amount, 0) || 0,
           monthRevenue: monthPayments?.reduce((sum, p) => sum + p.amount, 0) || 0,
           occupancyRate: rooms.length > 0 ? (occupied / rooms.length) * 100 : 0,

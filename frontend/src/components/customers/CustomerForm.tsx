@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { supabase } from '@/lib/supabase';
+import { customerService } from '@/services/customerService';
 import { toast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -40,28 +40,19 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
 
     try {
       if (mode === 'add') {
-        const { error } = await supabase
-          .from('customers')
-          .insert([{
-            ...formData,
-            loyalty_points: 0,
-            total_bookings: 0,
-            total_spent: 0,
-          }]);
-
-        if (error) throw error;
+        await customerService.createCustomer({
+          ...formData,
+          loyalty_points: 0,
+          total_bookings: 0,
+          total_spent: 0,
+        });
         
         toast({
           title: t('common.success'),
           description: t('common.saveSuccess'),
         });
       } else {
-        const { error } = await supabase
-          .from('customers')
-          .update(formData)
-          .eq('id', customer.id);
-
-        if (error) throw error;
+        await customerService.updateCustomer(customer.id, formData);
         
         toast({
           title: t('common.success'),

@@ -5,23 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/lib/supabase';
 import { Plus, Search, User, Star, Phone, Mail, Eye, Edit } from 'lucide-react';
 import { CustomerForm } from '@/components/customers/CustomerForm';
 import { CustomerView } from '@/components/customers/CustomerView';
-
-interface Customer {
-  id: string;
-  full_name: string;
-  email: string;
-  phone: string;
-  nationality: string;
-  status: string;
-  loyalty_points: number;
-  total_bookings: number;
-  total_spent: number;
-  created_at: string;
-}
+import { customerService, type Customer } from '@/services/customerService';
 
 export default function Customers() {
   const { t, formatCurrency: formatCurrencyLocale } = useLanguage();
@@ -39,13 +26,11 @@ export default function Customers() {
 
   const fetchCustomers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setCustomers(data || []);
+      const response = await customerService.getCustomers({
+        limit: 100  // Get more customers in one request
+      });
+      
+      setCustomers(response.data || []);
     } catch (error) {
       console.error('Error fetching customers:', error);
     } finally {
