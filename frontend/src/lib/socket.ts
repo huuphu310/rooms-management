@@ -37,7 +37,11 @@ class WebSocketService {
     }
 
     try {
-      this.socket = new WebSocket('ws://localhost:8000/ws')
+      // Extract base URL from environment variable and convert to WebSocket URL
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+      const baseUrl = apiUrl.replace('/api/v1', '')
+      const wsUrl = baseUrl.replace('http://', 'ws://').replace('https://', 'wss://')
+      this.socket = new WebSocket(`${wsUrl}/ws`)
       
       this.socket.onopen = () => {
         console.log('🔌 WebSocket connected')
