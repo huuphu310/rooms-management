@@ -33,16 +33,19 @@ export default function Customers() {
       setCustomers(response.data || []);
     } catch (error) {
       console.error('Error fetching customers:', error);
+      setCustomers([]); // Ensure customers is always an array
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredCustomers = customers.filter(customer =>
-    customer.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone.includes(searchTerm)
-  );
+  const filteredCustomers = Array.isArray(customers) 
+    ? customers.filter(customer =>
+        customer.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        customer.phone.includes(searchTerm)
+      )
+    : [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
