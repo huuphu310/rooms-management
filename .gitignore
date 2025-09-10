@@ -48,7 +48,8 @@ env/
 .env.local
 .env.*.local
 .env.docker
-
+*.env
+*.env.*
 # Logs
 *.log
 logs/

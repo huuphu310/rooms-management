@@ -106,6 +106,13 @@ except ImportError as e:
     print(f"POS module import failed: {e}")
     pos_available = False
 
+try:
+    from app.api.v1.endpoints import currency
+    currency_available = True
+except ImportError as e:
+    print(f"Currency module import failed: {e}")
+    currency_available = False
+
 api_router = APIRouter()
 
 # Include available endpoint routers
@@ -153,3 +160,6 @@ if folio_available:
 
 if pos_available:
     api_router.include_router(pos.router, prefix="/pos", tags=["POS"])
+
+if currency_available:
+    api_router.include_router(currency.router, prefix="/currency", tags=["Currency"])

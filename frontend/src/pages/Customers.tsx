@@ -86,7 +86,7 @@ export default function Customers() {
             <CardTitle className="text-sm font-medium">{t('customers.totalCustomers')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{customers.length}</div>
+            <div className="text-2xl font-bold">{Array.isArray(customers) ? customers.length : 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -95,7 +95,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {customers.filter(c => c.status === 'vip').length}
+              {Array.isArray(customers) ? customers.filter(c => c.status === 'vip').length : 0}
             </div>
           </CardContent>
         </Card>
@@ -105,7 +105,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {customers.filter(c => c.status === 'active').length}
+              {Array.isArray(customers) ? customers.filter(c => c.status === 'active').length : 0}
             </div>
           </CardContent>
         </Card>
@@ -115,7 +115,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(customers.reduce((sum, c) => sum + c.total_spent, 0))}
+              {formatCurrency(Array.isArray(customers) ? customers.reduce((sum, c) => sum + c.total_spent, 0) : 0)}
             </div>
           </CardContent>
         </Card>
