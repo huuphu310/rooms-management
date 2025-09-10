@@ -9,6 +9,8 @@ from app.api.deps import (
     require_permission,
     RequestContextDep,
     get_current_active_user,
+    get_current_user_optional,
+    get_request_context,
     get_supabase_service,
     get_cache
 )
@@ -40,27 +42,43 @@ async def create_building(
 
 @router.get("/", response_model=BuildingListResponse)
 async def get_buildings(
-    ctx: RequestContextDep,
     db: SupabaseService = Depends(get_supabase_service),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     sort_by: str = Query("display_order", regex="^(name|code|display_order|total_floors|created_at)$"),
     order: str = Query("asc", regex="^(asc|desc)$"),
-    include_inactive: bool = Query(False)
+    include_inactive: bool = Query(False),
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    """Get all buildings with pagination using Backend-Only Gateway approach"""
-    logger.info(f"Buildings endpoint reached with user: {ctx.user_id}")
-    logger.info(f"Database client type: {type(db)} (service client)")
+    """Get all buildings with pagination - public endpoint"""
+    # Buildings can be viewed without authentication (for room selection)
+    # But if user is authenticated, we can use their context
     
-    dal = BuildingsDAL(db)
-    result = await dal.list_buildings(
-        ctx=ctx,
-        page=page,
-        limit=limit,
-        sort_by=sort_by,
-        order=order,
-        include_inactive=include_inactive
-    )
+    if current_user:
+        logger.info(f"Buildings endpoint reached with authenticated user: {current_user.get('id')}")
+        ctx = await get_request_context(current_user)
+        dal = BuildingsDAL(db)
+        result = await dal.list_buildings(
+            ctx=ctx,
+            page=page,
+            limit=limit,
+            sort_by=sort_by,
+            order=order,
+            include_inactive=include_inactive
+        )
+    else:
+        logger.info("Buildings endpoint reached without authentication - public access")
+        # For public access, create a minimal context or use service directly
+        from app.services.building_service import BuildingService
+        service = BuildingService(db)
+        result = await service.get_buildings(
+            page=page,
+            limit=limit,
+            sort_by=sort_by,
+            order=order,
+            include_inactive=include_inactive
+        )
+        result = result.model_dump()
     
     logger.info("get_buildings completed successfully")
     return BuildingListResponse(**result)

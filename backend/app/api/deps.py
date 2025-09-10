@@ -473,6 +473,49 @@ async def get_current_active_user(
     
     return current_user
 
+async def get_current_user_optional(
+    request: Request,
+    db = Depends(get_supabase_service)
+) -> OptionalUser:
+    """
+    Get current user if authenticated, otherwise return None.
+    This is for endpoints that support both authenticated and anonymous access.
+    """
+    try:
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        
+        token = auth_header.split(" ")[1]
+        payload = await AuthService.verify_token(token, db)
+        
+        if not payload:
+            return None
+        
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        
+        # Get user profile
+        profile_response = db.table("user_profiles").select("*").eq("id", user_id).execute()
+        if not profile_response.data:
+            return None
+        
+        profile = profile_response.data[0]
+        
+        return {
+            "id": user_id,
+            "email": payload.get("email"),
+            "is_active": profile.get("is_active", True),
+            "role": profile.get("role", "guest"),
+            "roles": [profile.get("role", "guest")],
+            "is_super_admin": profile.get("role") == "super_admin",
+            "raw_token": token
+        }
+    except Exception:
+        # If any error occurs, treat as unauthenticated
+        return None
+
 async def get_request_context(
     current_user: CurrentUser = Depends(get_current_active_user)
 ) -> "RequestContext":
