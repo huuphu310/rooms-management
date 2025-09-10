@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/")
+@router.get("")
+@router.get("/", include_in_schema=False)
 async def get_rooms(
     current_user: dict = Depends(get_current_active_user),
     db = Depends(get_supabase_service),

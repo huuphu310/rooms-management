@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/", response_model=BookingListResponse)
+@router.get("", response_model=BookingListResponse)
+@router.get("/", response_model=BookingListResponse, include_in_schema=False)
 async def list_bookings(
     db: AuthenticatedDbDep,
     page: int = Query(1, ge=1),

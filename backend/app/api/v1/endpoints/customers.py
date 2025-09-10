@@ -172,7 +172,8 @@ async def merge_customers(
     
     return await CustomerService.merge_customers(db, primary_id, duplicate_id)
 
-@router.get("/", response_model=CustomerListResponse)
+@router.get("", response_model=CustomerListResponse)
+@router.get("/", response_model=CustomerListResponse, include_in_schema=False)
 async def list_customers(
     db: AuthenticatedDbDep,
     search: Optional[str] = Query(None, description="Search by name, email, or phone"),
