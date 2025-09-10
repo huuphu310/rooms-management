@@ -1,41 +1,105 @@
-version: '3.8'
-
 services:
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: ${RESTART_POLICY:-unless-stopped}
+    networks:
+      - homestay-network
+
+  # Backend API Service  
   api:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8081}:8000"
     environment:
+      # Application Settings
+      - PROJECT_NAME=${PROJECT_NAME}
+      - VERSION=${VERSION}
+      - API_V1_STR=${API_V1_STR}
+      - DEBUG=${DEBUG:-false}
+      
+      # Supabase Configuration
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - REDIS_URL=redis://redis:6379
+      
+      # Redis Configuration
+      - REDIS_URL=${REDIS_URL}
+      
+      # Cloudflare R2 Configuration
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
       - R2_ACCESS_KEY=${R2_ACCESS_KEY}
       - R2_SECRET_KEY=${R2_SECRET_KEY}
       - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL}
+      
+      # SMTP Configuration
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
-      - DEBUG=${DEBUG:-false}
+      - SMTP_TLS=${SMTP_TLS}
+      
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+      - ALGORITHM=${ALGORITHM}
+      
+      # JWT Configuration
+      - JWT_VERIFY_SIGNATURE=${JWT_VERIFY_SIGNATURE}
+      - JWT_JWKS_URL=${JWT_JWKS_URL}
+      - JWT_AUD=${JWT_AUD}
+      - JWT_ISS=${JWT_ISS}
+      - JWT_ALGORITHM=${JWT_ALGORITHM}
+      - JWT_LEEWAY=${JWT_LEEWAY}
+      
+      # CORS - handled by config defaults
+      # - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
+      
+      # Database and Performance
+      - DB_POOL_SIZE=${DB_POOL_SIZE}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL}
     depends_on:
       - redis
-    volumes:
-      - ./backend:/app
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: ${RESTART_POLICY:-unless-stopped}
     networks:
       - homestay-network
 
+  # Redis Cache Service
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: ${RESTART_POLICY:-unless-stopped}
     networks:
       - homestay-network
     command: redis-server --appendonly yes
