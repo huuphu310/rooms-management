@@ -144,6 +144,9 @@ class ExchangeRateService {
       const { default: CurrencyManager } = await import('@/lib/currency');
       CurrencyManager.updateExchangeRates(ratesForManager);
       
+      // Save rates to database via API
+      await this.saveRatesToDatabase(processedRates);
+      
       // Update last sync time
       settings.lastSync = new Date().toISOString();
       this.saveSettings(settings);
@@ -152,6 +155,28 @@ class ExchangeRateService {
     } catch (error) {
       console.error('Failed to sync exchange rates:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Save exchange rates to database via API
+   */
+  async saveRatesToDatabase(rates: ProcessedRate[]): Promise<void> {
+    try {
+      const { api } = await import('@/lib/api');
+      
+      // Update each exchange rate via API
+      for (const rate of rates) {
+        await api.post('/currency/exchange-rate', {
+          currency: rate.currency,
+          rate: rate.finalRate
+        });
+      }
+      
+      console.log('Exchange rates saved to database successfully');
+    } catch (error) {
+      console.error('Failed to save exchange rates to database:', error);
+      // Don't throw - we still want to update local rates even if DB save fails
     }
   }
 

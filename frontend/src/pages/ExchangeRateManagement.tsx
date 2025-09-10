@@ -232,18 +232,20 @@ export default function ExchangeRateManagement() {
                 Auto Sync
               </Label>
             </div>
-            <Button
-              onClick={handleSyncNow}
-              disabled={loading || !connectionStatus}
-              size="sm"
-            >
-              {loading ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Sync Now
-            </Button>
+            {settings.autoSync && (
+              <Button
+                onClick={handleSyncNow}
+                disabled={loading || !connectionStatus}
+                size="sm"
+              >
+                {loading ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Sync Now
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
