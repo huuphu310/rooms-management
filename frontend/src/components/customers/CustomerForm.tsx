@@ -36,6 +36,17 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate that at least phone or email is provided
+    if (!formData.email && !formData.phone) {
+      toast({
+        title: t('common.error'),
+        description: 'Please provide at least one contact method (email or phone).',
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -86,6 +97,10 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+            ℹ️ At least one contact method (email or phone) is required for customer registration.
+          </div>
+          
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="full_name">{t('customers.fullName')} *</Label>
@@ -98,23 +113,29 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">{t('customers.email')} *</Label>
+              <Label htmlFor="email">
+                {t('customers.email')} 
+                <span className="text-xs text-muted-foreground ml-1">(required if no phone)</span>
+              </Label>
               <Input
                 id="email"
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
+                placeholder="customer@example.com"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">{t('customers.phone')} *</Label>
+              <Label htmlFor="phone">
+                {t('customers.phone')}
+                <span className="text-xs text-muted-foreground ml-1">(required if no email)</span>
+              </Label>
               <Input
                 id="phone"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                required
+                placeholder="+1234567890"
               />
             </div>
 
