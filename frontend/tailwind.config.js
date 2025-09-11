@@ -71,4 +71,23 @@ export default {
     },
   },
   plugins: [require("tailwindcss-animate")],
+  safelist: [
+    // Room Allocation Grid status colors
+    'bg-green-100', 'text-green-800', 'border-green-200', 'text-green-600',
+    'bg-blue-100', 'text-blue-800', 'border-blue-200', 'ring-blue-400',
+    'bg-orange-100', 'text-orange-800', 'border-orange-200',
+    'bg-purple-100', 'text-purple-800', 'border-purple-200',
+    'bg-red-100', 'text-red-800', 'border-red-200', 'text-red-600',
+    'bg-gray-100', 'text-gray-800', 'border-gray-200',
+    'bg-yellow-100', 'text-yellow-800', 'border-yellow-200', 'ring-yellow-400', 'text-yellow-500',
+    // Grid layout classes
+    'min-h-[40px]',
+    'ring-1', 'ring-2',
+    // Flexbox and spacing
+    'p-1', 'gap-1', 'text-xs',
+    'truncate', 'font-medium', 'font-bold',
+    'absolute', 'top-0', 'right-0',
+    // Icons
+    'h-3', 'w-3', 'h-4', 'w-4', 'h-5', 'w-5'
+  ]
 }
