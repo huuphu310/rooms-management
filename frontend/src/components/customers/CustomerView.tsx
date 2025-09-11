@@ -45,12 +45,7 @@ export function CustomerView({ open, onClose, customer }: CustomerViewProps) {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between">
-            <span>{t('customers.customerDetails')}</span>
-            <Badge variant={getStatusColor(customer.status) as any}>
-              {t(`customers.${customer.status}`)}
-            </Badge>
-          </DialogTitle>
+          <DialogTitle>{t('customers.customerDetails')}</DialogTitle>
           <DialogDescription>
             View and manage customer information, booking history, and loyalty details.
           </DialogDescription>
@@ -115,6 +110,15 @@ export function CustomerView({ open, onClose, customer }: CustomerViewProps) {
                     <div>
                       <p className="text-sm text-muted-foreground">{t('customers.nationality')}</p>
                       <p className="font-medium">{customer.nationality || t('common.notAvailable')}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 col-span-2">
+                    <div>
+                      <p className="text-sm text-muted-foreground">{t('common.status')}</p>
+                      <Badge variant={getStatusColor(customer.status) as any} className="mt-1">
+                        {t(`customers.${customer.status}`)}
+                      </Badge>
                     </div>
                   </div>
                 </div>
