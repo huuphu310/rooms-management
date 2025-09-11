@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -78,6 +78,11 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{mode === 'add' ? t('customers.newCustomer') : t('customers.editCustomer')}</DialogTitle>
+          <DialogDescription>
+            {mode === 'add' 
+              ? 'Add a new customer to the system with their contact and personal information.'
+              : 'Update customer information including contact details and preferences.'}
+          </DialogDescription>
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-4">
