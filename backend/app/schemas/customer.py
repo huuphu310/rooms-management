@@ -126,6 +126,39 @@ class CustomerUpdate(BaseModel):
     notes: Optional[str] = None
     preferences: Optional[dict] = None
     is_active: Optional[bool] = None
+    
+    @validator('phone', pre=True)
+    def empty_str_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+    
+    @validator('phone')
+    def validate_phone(cls, v):
+        if v:
+            phone_pattern = re.compile(r'^\+?[0-9\s\-\(\)]+$')
+            if not phone_pattern.match(v):
+                raise ValueError('Invalid phone number format')
+            return v.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+        return v
+    
+    @validator('email', pre=True)
+    def empty_email_to_none(cls, v):
+        if v == '':
+            return None
+        return v
+    
+    @validator('email')
+    def validate_email_format(cls, v):
+        if v and '@' not in v:
+            raise ValueError('Invalid email format')
+        return v.lower() if v else None
+    
+    @validator('date_of_birth', pre=True)
+    def empty_date_to_none(cls, v):
+        if v == '':
+            return None
+        return v
 
 
 class CustomerInDB(CustomerBase):

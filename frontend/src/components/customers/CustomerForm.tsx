@@ -50,9 +50,24 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
     setLoading(true);
 
     try {
+      // Prepare data - convert empty strings to null for optional fields
+      const submitData = {
+        ...formData,
+        // Convert empty strings to null for optional fields
+        phone: formData.phone || null,
+        email: formData.email || null,
+        nationality: formData.nationality || null,
+        passport_number: formData.passport_number || null,
+        address: formData.address || null,
+        date_of_birth: formData.date_of_birth || null,
+        notes: formData.notes || null,
+        emergency_contact: formData.emergency_contact || null,
+        emergency_phone: formData.emergency_phone || null,
+      };
+      
       if (mode === 'add') {
         await customerService.createCustomer({
-          ...formData,
+          ...submitData,
           loyalty_points: 0,
           total_bookings: 0,
           total_spent: 0,
@@ -63,7 +78,7 @@ export function CustomerForm({ open, onClose, customer, onSuccess, mode = 'add' 
           description: t('common.saveSuccess'),
         });
       } else {
-        await customerService.updateCustomer(customer.id, formData);
+        await customerService.updateCustomer(customer.id, submitData);
         
         toast({
           title: t('common.success'),
