@@ -129,7 +129,7 @@ class InventoryServiceEnhanced:
             
             # Cache result
             if self.cache:
-                await self.cache.set(cache_key, result.dict(), ttl=300)  # 5 minutes
+                await self.cache.set(cache_key, result.dict(), expire=300)  # 5 minutes
             
             return result
             

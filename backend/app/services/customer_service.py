@@ -85,7 +85,7 @@ class CustomerService:
             customer = response.data
             
             # Cache the result
-            await cache_service.set(cache_key, json.dumps(customer), ttl=300)
+            await cache_service.set(cache_key, json.dumps(customer), expire=300)
             
             return CustomerResponse(**customer)
             
