@@ -145,14 +145,9 @@ class AuthService:
     async def get_user_profile(user_id: str, db: Client, email: str = None) -> Optional[dict]:
         """Get user profile with role information from database only (simplified for new flow)"""
         try:
-            # IMPORTANT: Create a fresh service client to bypass RLS
-            # The db parameter might not have the right permissions
-            from supabase import create_client
-            from app.core.config import settings
-            service_client = create_client(
-                settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_KEY
-            )
+            # Use pooled service client to bypass RLS
+            from app.core.database_pool import db_pool
+            service_client = db_pool.get_service_client()
             
             # Get user profile from user_profiles table using service client
             user_response = service_client.table("user_profiles").select(
@@ -252,16 +247,35 @@ class AuthService:
     
     @staticmethod
     async def get_user_permissions(user: dict, db: Client) -> dict:
-        """Get user permissions from database based on roles"""
+        """Get user permissions from cache or database based on roles"""
+        from app.core.redis_client import cache_service
+        
         try:
+            user_id = user.get('id')
+            if not user_id:
+                return {}
+            
+            # Try to get permissions from cache first
+            cached_permissions = await cache_service.get_user_permissions(user_id)
+            if cached_permissions is not None:
+                logger.debug(f"Using cached permissions for user {user_id}")
+                return cached_permissions
+            
+            # If not in cache, fetch from database
+            logger.debug(f"Fetching permissions from database for user {user_id}")
             permissions = {}
             
             # Super admin gets all permissions
             if user.get('role') == 'admin' or user.get('is_super_admin'):
-                return {"all": ["all"]}  # Admin can do everything
+                permissions = {"all": ["all"]}  # Admin can do everything
+                # Cache the result
+                await cache_service.set_user_permissions(user_id, permissions)
+                return permissions
             
             role_id = user.get('role_id')
             if not role_id:
+                # Cache empty permissions
+                await cache_service.set_user_permissions(user_id, {})
                 return {}  # No permissions if no role
             
             # Get role permissions from database
@@ -301,6 +315,10 @@ class AuthService:
                         # Remove permission if explicitly denied
                         if module in permissions and action in permissions[module]:
                             permissions[module].remove(action)
+            
+            # Cache the permissions
+            await cache_service.set_user_permissions(user_id, permissions)
+            logger.debug(f"Cached permissions for user {user_id}")
             
             return permissions
             
@@ -487,17 +505,20 @@ async def get_current_user_optional(
             return None
         
         token = auth_header.split(" ")[1]
-        payload = await AuthService.verify_token(token, db)
+        # Use decode_jwt_token instead of non-existent verify_token
+        token_data = AuthService.decode_jwt_token(token)
         
-        if not payload:
+        if not token_data:
             return None
         
-        user_id = payload.get("sub")
+        user_id = token_data.get("user_id")
         if not user_id:
             return None
         
-        # Get user profile
-        profile_response = db.table("user_profiles").select("*").eq("id", user_id).execute()
+        # Get user profile using pooled connection
+        from app.core.database_pool import db_pool
+        service_db = db_pool.get_service_client()
+        profile_response = service_db.table("user_profiles").select("*").eq("id", user_id).execute()
         if not profile_response.data:
             return None
         
@@ -505,7 +526,7 @@ async def get_current_user_optional(
         
         return {
             "id": user_id,
-            "email": payload.get("email"),
+            "email": token_data.get("email"),
             "is_active": profile.get("is_active", True),
             "role": profile.get("role", "guest"),
             "roles": [profile.get("role", "guest")],
@@ -751,9 +772,9 @@ async def get_authenticated_db(
     With new auth flow, we only need authentication - permissions handled at API level
     """
     try:
-        # Get service role client since RLS is now authentication-only
-        from app.core.database import get_supabase_service
-        db = get_supabase_service()
+        # Use pooled service client for better performance
+        from app.core.database_pool import db_pool
+        db = db_pool.get_service_client()
         
         # No need to set RLS context anymore - permissions handled at API level
         logger.debug(f"Authenticated DB access for user: {current_user.get('id')}")
@@ -782,13 +803,17 @@ async def get_user_scoped_db(
     logger = logging.getLogger(__name__)
     logger.info("get_user_scoped_db called")
     
-    from supabase import create_client
-    from supabase.lib.client_options import ClientOptions
-    logger.info("Supabase imports completed")
+    # Use pooled client for better performance
+    from app.core.database_pool import db_pool
+    logger.info("Using database pool")
     
     if user and user.get("raw_token"):
-        # Authenticated user - use JWT token to enforce RLS
+        # For user-scoped access, we still need to create a new client with the user's token
+        # But we'll cache these per-user clients in the future
         logger.info(f"Creating user-scoped client for user: {user.get('id')}")
+        from supabase import create_client
+        from supabase.lib.client_options import ClientOptions
+        
         token = user["raw_token"]
         options = ClientOptions(
             headers={
@@ -797,6 +822,7 @@ async def get_user_scoped_db(
         )
         logger.info("ClientOptions created")
         
+        # TODO: Consider caching these per-user clients
         client = create_client(
             settings.SUPABASE_URL,
             settings.SUPABASE_KEY,  # Use anon key as base, JWT token provides auth context

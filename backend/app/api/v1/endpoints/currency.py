@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Annotated
 
 from app.api.deps import (
-    CurrentUser,
+    get_current_user,
     get_supabase_service,
     get_cache,
     require_permission)
@@ -31,7 +31,7 @@ async def get_currency_config(
 @router.put("/config", response_model=CurrencyConfig)
 async def update_currency_config(
     config_update: CurrencyConfigUpdate,
-    current_user: CurrentUser,
+    current_user: Annotated[dict, Depends(get_current_user)],
     db = Depends(get_supabase_service),
     cache = Depends(get_cache),
     _: dict = Depends(require_permission("admin", "edit"))
@@ -43,7 +43,7 @@ async def update_currency_config(
 @router.post("/exchange-rate", response_model=CurrencyConfig)
 async def update_exchange_rate(
     rate_update: ExchangeRateUpdate,
-    current_user: CurrentUser,
+    current_user: Annotated[dict, Depends(get_current_user)],
     db = Depends(get_supabase_service),
     cache = Depends(get_cache),
     _: dict = Depends(require_permission("admin", "edit"))
@@ -51,6 +51,19 @@ async def update_exchange_rate(
     """Update a single exchange rate (admin only)"""
     service = CurrencyService(db, cache)
     return await service.update_exchange_rate(rate_update)
+
+@router.put("/config/auto-update")
+async def update_auto_sync_setting(
+    auto_update: bool,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    db = Depends(get_supabase_service),
+    cache = Depends(get_cache),
+    _: dict = Depends(require_permission("admin", "edit"))
+):
+    """Update auto-sync setting (admin only)"""
+    service = CurrencyService(db, cache)
+    update = CurrencyConfigUpdate(auto_update=auto_update)
+    return await service.update_currency_config(update)
 
 @router.get("/convert")
 async def convert_currency(

@@ -113,6 +113,13 @@ except ImportError as e:
     print(f"Currency module import failed: {e}")
     currency_available = False
 
+try:
+    from app.api.v1.endpoints import cache_management
+    cache_management_available = True
+except ImportError as e:
+    print(f"Cache management module import failed: {e}")
+    cache_management_available = False
+
 api_router = APIRouter()
 
 # Include available endpoint routers
@@ -163,3 +170,6 @@ if pos_available:
 
 if currency_available:
     api_router.include_router(currency.router, prefix="/currency", tags=["Currency"])
+
+if cache_management_available:
+    api_router.include_router(cache_management.router, prefix="/cache", tags=["Cache Management"])

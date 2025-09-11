@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
     
     # Cloudflare R2
     R2_ACCOUNT_ID: Optional[str] = None

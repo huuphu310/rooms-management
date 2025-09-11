@@ -50,13 +50,9 @@ async def get_rooms(
                 detail="Insufficient permissions to read rooms"
             )
         
-        # IMPORTANT: Create fresh service client to bypass RLS
-        from supabase import create_client
-        from app.core.config import settings
-        service_db = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_SERVICE_KEY
-        )
+        # Use pooled service client to bypass RLS
+        from app.core.database_pool import db_pool
+        service_db = db_pool.get_service_client()
         
         # Select all fields needed by frontend, including room_type relationship
         query = service_db.table("rooms").select("""
@@ -123,13 +119,9 @@ async def get_room_types(
                 detail="Insufficient permissions to read room types"
             )
         
-        # Create fresh service client to bypass RLS
-        from supabase import create_client
-        from app.core.config import settings
-        service_db = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_SERVICE_KEY
-        )
+        # Use pooled service client to bypass RLS
+        from app.core.database_pool import db_pool
+        service_db = db_pool.get_service_client()
         
         # Use fresh service client for reading room types - return all fields
         response = service_db.table("room_types").select("*").limit(pagination.limit).offset(pagination.offset).execute()

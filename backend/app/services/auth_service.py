@@ -35,12 +35,9 @@ class AuthService:
             })
             
             if response.user and response.session:
-                # IMPORTANT: Create a fresh service client to bypass RLS
-                # The db parameter passed might not have the right permissions
-                service_client = create_client(
-                    settings.SUPABASE_URL,
-                    settings.SUPABASE_SERVICE_KEY
-                )
+                # Use pooled service client to bypass RLS
+                from app.core.database_pool import db_pool
+                service_client = db_pool.get_service_client()
                 logger.info(f"Querying user_profiles for user_id: {response.user.id}")
                 logger.info(f"Using fresh service client with service key")
                 

@@ -97,6 +97,32 @@ class CacheService:
             await self.connect()
         
         return await self.redis.exists(key) > 0
+    
+    # Permission-specific methods
+    async def get_user_permissions(self, user_id: str) -> Optional[dict]:
+        """Get cached user permissions"""
+        key = f"permissions:user:{user_id}"
+        return await self.get(key)
+    
+    async def set_user_permissions(self, user_id: str, permissions: dict, expire: int = 600):
+        """Cache user permissions (default 10 minutes)"""
+        key = f"permissions:user:{user_id}"
+        await self.set(key, permissions, expire)
+    
+    async def invalidate_user_permissions(self, user_id: str):
+        """Invalidate cached permissions for a specific user"""
+        key = f"permissions:user:{user_id}"
+        await self.delete(key)
+    
+    async def invalidate_all_permissions(self):
+        """Invalidate all cached permissions (use when roles/permissions change)"""
+        await self.delete_pattern("permissions:*")
+    
+    async def invalidate_role_permissions(self, role_id: str):
+        """Invalidate cached permissions for all users with a specific role"""
+        # For now, invalidate all user permissions
+        # In future, could track which users have which roles
+        await self.delete_pattern("permissions:user:*")
 
 # Global cache service instance
 cache_service = CacheService()

@@ -69,9 +69,9 @@ class BuildingService:
                 if cached:
                     return BuildingListResponse(**cached)
             
-            # TEMPORARY: Test with service client to bypass RLS
-            from app.core.database import get_supabase_service
-            service_db = get_supabase_service()
+            # Use pooled service client to bypass RLS
+            from app.core.database_pool import db_pool
+            service_db = db_pool.get_service_client()
             
             # Build query for data (using service client)
             query = service_db.table("buildings").select("*")

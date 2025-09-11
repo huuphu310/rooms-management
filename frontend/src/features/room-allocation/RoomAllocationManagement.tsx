@@ -334,56 +334,6 @@ export default function RoomAllocationManagement() {
           <AllocationSettings />
         </TabsContent>
       </Tabs>
-
-      {/* Feature Highlights */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('roomAllocation.featuresTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Grid3X3 className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="font-medium">{t('roomAllocation.visualGridManagement')}</p>
-                <p className="text-sm text-muted-foreground">{t('roomAllocation.visualGridDescription')}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="font-medium">{t('roomAllocation.autoAssignment')}</p>
-                <p className="text-sm text-muted-foreground">{t('roomAllocation.autoAssignmentDescription')}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <AlertTriangle className="h-5 w-5 text-orange-600" />
-              </div>
-              <div>
-                <p className="font-medium">{t('roomAllocation.smartAlerts')}</p>
-                <p className="text-sm text-muted-foreground">{t('roomAllocation.smartAlertsDescription')}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <BarChart3 className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="font-medium">{t('roomAllocation.analyticsReports')}</p>
-                <p className="text-sm text-muted-foreground">{t('roomAllocation.analyticsReportsDescription')}</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }

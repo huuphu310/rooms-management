@@ -164,20 +164,57 @@ class ExchangeRateService {
   async saveRatesToDatabase(rates: ProcessedRate[]): Promise<void> {
     try {
       const { api } = await import('@/lib/api');
+      const settings = this.getSettings();
       
-      // Update each exchange rate via API
-      for (const rate of rates) {
-        await api.post('/currency/exchange-rate', {
-          currency: rate.currency,
-          rate: rate.finalRate
-        });
-      }
+      // Build rates object for bulk update
+      const ratesData: Record<string, any> = {};
+      rates.forEach(rate => {
+        ratesData[rate.currency] = {
+          code: rate.currency,
+          rate: rate.finalRate,
+          name: this.getCurrencyName(rate.currency),
+          symbol: this.getCurrencySymbol(rate.currency)
+        };
+      });
+      
+      // Update all rates at once, including auto_update status
+      await api.put('/currency/config', {
+        rates: ratesData,
+        auto_update: settings.autoSync && settings.syncEnabled,
+        update_frequency: settings.autoSync ? 'daily' : 'manual'
+      });
       
       console.log('Exchange rates saved to database successfully');
     } catch (error) {
       console.error('Failed to save exchange rates to database:', error);
       // Don't throw - we still want to update local rates even if DB save fails
     }
+  }
+
+  /**
+   * Get currency name
+   */
+  private getCurrencyName(code: string): string {
+    const names: Record<string, string> = {
+      'USD': 'US Dollar',
+      'EUR': 'Euro',
+      'GBP': 'British Pound',
+      'JPY': 'Japanese Yen'
+    };
+    return names[code] || code;
+  }
+
+  /**
+   * Get currency symbol
+   */
+  private getCurrencySymbol(code: string): string {
+    const symbols: Record<string, string> = {
+      'USD': '$',
+      'EUR': '€',
+      'GBP': '£',
+      'JPY': '¥'
+    };
+    return symbols[code] || code;
   }
 
   /**

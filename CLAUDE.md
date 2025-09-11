@@ -64,7 +64,7 @@ frontend/
 
 ### 1. Documentation
 - **BEFORE refactoring**: Update existing docs in `./docs`
-- **AFTER features**: Add new docs (no duplicates)
+- **AFTER features**: Add new docs (no duplicates) to `./docs`
 - **MCP Tools**:
   - `context7`: Package/plugin docs
   - `serena`: Semantic code search/edit
@@ -78,35 +78,9 @@ frontend/
 
 ### 3. Common Errors to Avoid (Based on Production Issues)
 
-#### Authentication
-```python
-# ❌ WRONG: Using Supabase auth.get_user() - it hangs!
-response = auth.get_user(token)  # This will timeout
+#### Authentication and Database Operations
+- Follow document in `./docs/development/AUTHENTICATION_AND_DATABASE_GUIDE.md`
 
-# ✅ CORRECT: Decode JWT directly with timeout
-import jwt
-payload = jwt.decode(token, options={"verify_signature": False})
-user_id = payload.get("sub")
-```
-
-#### Database Operations
-```python
-# ❌ WRONG: SQLAlchemy syntax
-db.query(Model).filter(Model.field == value).first()
-
-# ✅ CORRECT: Supabase client syntax
-db.table("table_name").select("*").eq("field", value).execute()
-
-# ❌ WRONG: Missing required fields
-db.table("pos_shifts").insert({"opened_by": user_id})  # Missing shift_date!
-
-# ✅ CORRECT: Include ALL required fields
-db.table("pos_shifts").insert({
-    "shift_date": date.today().isoformat(),  # Required!
-    "opened_by": str(user_id),
-    "status": "open"
-})
-```
 
 #### API Endpoints
 ```javascript
@@ -223,7 +197,12 @@ curl -X GET "http://localhost:8000/api/v1/endpoint" \
 
 ## When Stuck
 
-1. Check `/docs/troubleshooting/error_fixes_summary.md` for similar issues
+1. Check `./docs/troubleshooting/error_fixes_summary.md` for similar issues
 2. Verify you're following the conventions above
 3. Test with minimal example first
 4. Check logs for actual error (not just symptoms)
+
+## When changing database architecture
+- always create database update script in `./docs/database/` folder, and execute that script, do not update directly.
+- Always update changes with script name and detailed instructions in `./docs/database/track_change.md`
+- ./CLAUDE.md

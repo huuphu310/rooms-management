@@ -40,13 +40,58 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="API Documentation - Cache is automatically cleared when accessing /docs",
+    description="""
+## Homestay/Hotel Management System API
+
+Comprehensive API for managing small to medium-sized hospitality establishments (5-30 rooms).
+
+### Key Features:
+- 🔐 **Authentication & Authorization**: JWT-based auth with role-based access control
+- 🏨 **Room Management**: Complete room inventory, types, and availability tracking
+- 📅 **Booking System**: Advanced booking management with room allocation
+- 👥 **Customer Management**: Guest profiles and booking history
+- 💰 **Billing & Payments**: Invoicing, payment tracking, and QR payment integration
+- 📊 **Reports & Analytics**: Revenue, occupancy, and performance reports
+- 🏪 **POS System**: Point of sale for additional services
+- 💱 **Multi-Currency**: Support for multiple currencies with exchange rates
+- 🚀 **Performance**: Redis caching for improved response times
+
+### Authentication:
+All endpoints require JWT Bearer token authentication except public endpoints.
+Include the token in the Authorization header: `Bearer <token>`
+
+### Rate Limiting:
+API requests are limited to 100 requests per minute per IP address.
+
+### Cache Management:
+Permission caching is enabled for performance. Cache TTL is 10 minutes.
+Admin users can manually invalidate cache through cache management endpoints.
+    """,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan,
     # Disable automatic redirect from /path to /path/
-    redirect_slashes=False
+    redirect_slashes=False,
+    openapi_tags=[
+        {"name": "Authentication", "description": "User authentication and JWT token management"},
+        {"name": "Rooms", "description": "Room inventory, types, and availability management"},
+        {"name": "Bookings", "description": "Booking creation, modification, and cancellation"},
+        {"name": "Customers", "description": "Guest profiles and customer management"},
+        {"name": "User Management", "description": "User accounts, roles, and permissions"},
+        {"name": "Buildings", "description": "Building and floor management"},
+        {"name": "Reports", "description": "Analytics and reporting endpoints"},
+        {"name": "Pricing", "description": "Dynamic pricing and rate management"},
+        {"name": "Admin", "description": "Administrative functions and system management"},
+        {"name": "Room Allocation", "description": "Automatic and manual room assignment"},
+        {"name": "Inventory Enhanced", "description": "Advanced inventory tracking and management"},
+        {"name": "Billing Enhanced", "description": "Enhanced billing with invoicing and payment schedules"},
+        {"name": "Payment Integration", "description": "Payment gateway and QR payment integration"},
+        {"name": "Folio", "description": "Guest folio and charge management"},
+        {"name": "POS", "description": "Point of Sale for additional services"},
+        {"name": "Currency", "description": "Multi-currency support and exchange rates"},
+        {"name": "Cache Management", "description": "Redis cache management and invalidation"},
+    ]
 )
 
 # Add ProxyHeaders middleware to handle HTTPS behind proxy (Cloudflare)

@@ -39,7 +39,8 @@ export default function ExchangeRateManagement() {
   useEffect(() => {
     loadSettings();
     loadSyncStatus();
-    testConnection();
+    // Don't test connection on mount - only test when needed
+    loadRatesFromDatabase();
     // Initialize manual rates with current exchange rates
     setManualRates({ ...exchangeRates });
   }, []);
@@ -54,11 +55,52 @@ export default function ExchangeRateManagement() {
     setSyncStatus(status);
   };
 
+  const loadRatesFromDatabase = async () => {
+    try {
+      const { api } = await import('@/lib/api');
+      const response = await api.get('/currency/config');
+      
+      if (response.data && response.data.rates) {
+        const loadedRates: ProcessedRate[] = [];
+        const rates = response.data.rates;
+        
+        // Convert database rates to ProcessedRate format for display
+        Object.entries(rates).forEach(([code, rateData]: [string, any]) => {
+          loadedRates.push({
+            currency: code,
+            originalRate: rateData.rate,
+            adjustmentPercent: 0,
+            finalRate: rateData.rate,
+            lastUpdated: rateData.updated_at || response.data.last_updated
+          });
+        });
+        
+        setProcessedRates(loadedRates);
+        
+        // Also update settings if auto_update is stored
+        if (settings && response.data.auto_update !== undefined) {
+          const updatedSettings = {
+            ...settings,
+            autoSync: response.data.auto_update,
+            syncEnabled: response.data.auto_update,
+            lastSync: response.data.last_updated || ''
+          };
+          setSettings(updatedSettings);
+          exchangeRateService.saveSettings(updatedSettings);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load rates from database:', error);
+    }
+  };
+
   const testConnection = async () => {
     setTesting(true);
     try {
-      const isConnected = await exchangeRateService.testConnection();
-      setConnectionStatus(isConnected);
+      // Just check if we can reach the API without actually fetching rates
+      // We'll set connection status based on whether the API is reachable
+      // but won't fetch rates unless explicitly syncing
+      setConnectionStatus(true); // Assume connected, will test when actually syncing
     } catch (error) {
       setConnectionStatus(false);
     } finally {
@@ -66,9 +108,19 @@ export default function ExchangeRateManagement() {
     }
   };
 
-  const saveSettings = (newSettings: ExchangeRateSettings) => {
+  const saveSettings = async (newSettings: ExchangeRateSettings) => {
     exchangeRateService.saveSettings(newSettings);
     setSettings(newSettings);
+    
+    // Update auto_update setting in database
+    try {
+      const { api } = await import('@/lib/api');
+      await api.put('/currency/config/auto-update', null, {
+        params: { auto_update: newSettings.autoSync && newSettings.syncEnabled }
+      });
+    } catch (error) {
+      console.error('Failed to update auto-update setting:', error);
+    }
     
     // Setup or clear auto sync based on settings
     if (newSettings.autoSync && newSettings.syncEnabled) {
@@ -89,6 +141,15 @@ export default function ExchangeRateManagement() {
     
     setLoading(true);
     try {
+      // Test connection first
+      const isConnected = await exchangeRateService.testConnection();
+      if (!isConnected) {
+        setConnectionStatus(false);
+        throw new Error('Cannot connect to Vietcombank API');
+      }
+      setConnectionStatus(true);
+      
+      // Now sync rates
       const rates = await exchangeRateService.syncRates();
       setProcessedRates(rates);
       loadSyncStatus();
@@ -196,18 +257,6 @@ export default function ExchangeRateManagement() {
             Manage automatic synchronization with Vietcombank and adjust exchange rates
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={connectionStatus ? "success" : "destructive"} className="flex items-center gap-1">
-            {testing ? (
-              <RefreshCw className="h-3 w-3 animate-spin" />
-            ) : connectionStatus ? (
-              <Wifi className="h-3 w-3" />
-            ) : (
-              <WifiOff className="h-3 w-3" />
-            )}
-            {connectionStatus ? 'API Connected' : 'API Disconnected'}
-          </Badge>
-        </div>
       </div>
 
       {/* Exchange Rate Table */}
@@ -228,14 +277,14 @@ export default function ExchangeRateManagement() {
                   saveSettings({ ...settings, autoSync: checked, syncEnabled: checked })
                 }
               />
-              <Label htmlFor="auto-sync" className="text-sm font-medium cursor-pointer">
+              <Label htmlFor="auto-sync" className="text-sm font-medium cursor-pointer text-foreground select-none">
                 Auto Sync
               </Label>
             </div>
             {settings.autoSync && (
               <Button
                 onClick={handleSyncNow}
-                disabled={loading || !connectionStatus}
+                disabled={loading}
                 size="sm"
               >
                 {loading ? (
