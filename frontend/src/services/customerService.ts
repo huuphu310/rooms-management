@@ -23,12 +23,10 @@ export interface Customer {
 
 export interface CustomerListResponse {
   data: Customer[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    total_pages: number;
-  };
+  page: number;
+  limit: number;
+  total: number;
+  total_pages?: number;
 }
 
 class CustomerService {

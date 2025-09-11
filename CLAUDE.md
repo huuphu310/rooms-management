@@ -205,4 +205,3 @@ curl -X GET "http://localhost:8000/api/v1/endpoint" \
 ## When changing database architecture
 - always create database update script in `./docs/database/` folder, and execute that script, do not update directly.
 - Always update changes with script name and detailed instructions in `./docs/database/track_change.md`
-- ./CLAUDE.md

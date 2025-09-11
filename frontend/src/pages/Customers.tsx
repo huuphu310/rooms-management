@@ -47,7 +47,7 @@ export default function Customers() {
         }));
         setCustomers(customersWithStatus);
       } else {
-        console.warn('Unexpected response structure:', response);
+        // Don't warn about expected response structure
         setCustomers([]);
       }
     } catch (error) {
