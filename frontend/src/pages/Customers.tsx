@@ -62,7 +62,7 @@ export default function Customers() {
     ? customers.filter(customer =>
         customer.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (customer.phone && customer.phone.includes(searchTerm))
+        (customer.phone && customer.phone.toLowerCase().includes(searchTerm.toLowerCase()))
       )
     : [];
 
@@ -187,10 +187,12 @@ export default function Customers() {
                         <Mail className="mr-1 h-3 w-3" />
                         {customer.email}
                       </div>
-                      <div className="flex items-center text-sm">
-                        <Phone className="mr-1 h-3 w-3" />
-                        {customer.phone}
-                      </div>
+                      {customer.phone && (
+                        <div className="flex items-center text-sm">
+                          <Phone className="mr-1 h-3 w-3" />
+                          {customer.phone}
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{customer.total_bookings}</TableCell>
