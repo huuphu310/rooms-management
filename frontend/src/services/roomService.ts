@@ -7,6 +7,10 @@ export interface RoomType {
   base_price: number;
   weekend_price?: number;
   holiday_price?: number;
+  pricing_mode?: 'traditional' | 'shift'; // Pricing mode for the room type
+  day_shift_price?: number; // Price for day shift (9 AM - 4:30 PM)
+  night_shift_price?: number; // Price for night shift (5:30 PM - 8:30 AM)
+  full_day_price?: number; // Price for full day (both shifts)
   standard_occupancy: number;
   max_occupancy: number;
   min_occupancy?: number;

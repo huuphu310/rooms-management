@@ -59,7 +59,7 @@ export function CheckInDialog({ booking, open, onClose, onSuccess }: CheckInDial
 
   // Fetch available rooms using room-allocation API or fallback to basic rooms API
   const { data: roomsResponse, isError: roomsError, isLoading: roomsLoading } = useQuery({
-    queryKey: ['check-in-available-rooms', booking.check_in_date, booking.check_out_date, booking.room_type_id],
+    queryKey: ['check-in-available-rooms', booking.check_in_date, booking.check_out_date, booking.room_type_id, booking.id],
     queryFn: async () => {
       try {
         // Try room-allocation API first if room_type_id is valid
@@ -68,7 +68,8 @@ export function CheckInDialog({ booking, open, onClose, onSuccess }: CheckInDial
             check_in_date: booking.check_in_date,
             check_out_date: booking.check_out_date,
             room_type_id: booking.room_type_id,
-            guest_count: booking.adults + (booking.children || 0)
+            guest_count: booking.adults + (booking.children || 0),
+            booking_id: booking.id  // Pass booking ID to include its assigned room
           })
         } else {
           // Fallback: get all available rooms from basic rooms API

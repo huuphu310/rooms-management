@@ -1,0 +1,33 @@
+{
+    "mcpServers": {
+      "supabase": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@supabase/mcp-server-supabase@latest"
+        ],
+        "env": {
+          "SUPABASE_ACCESS_TOKEN": "sbp_a3bffdb8c0f52563ffdb308a0629dda3793c29d6"
+        }
+      },
+      "context7": {
+          "type": "http",
+          "url": "https://mcp.context7.com/mcp"
+        },
+        "serena": {
+          "type": "stdio",
+          "command": "uvx",
+          "args": [
+            "--from",
+            "git+https://github.com/oraios/serena",
+            "serena",
+            "start-mcp-server",
+            "--context",
+            "ide-assistant",
+            "--project",
+            "/Users/huuphu/Development/room_booking"
+          ],
+          "env": {}
+        }
+    }
+  }

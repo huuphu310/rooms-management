@@ -61,7 +61,8 @@ async def list_bookings(
             page=page,
             limit=limit,
             status=status,
-            check_in_date=check_in_date_from,
+            check_in_date_from=check_in_date_from,
+            check_in_date_to=check_in_date_to,
             check_out_date=check_out_date,
             customer_id=customer_id,
             room_id=room_id,
@@ -322,6 +323,40 @@ async def update_booking_status(
     except Exception as e:
         logger.error(f"Error updating booking status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{booking_id}/assign-room")
+async def assign_room_to_booking(
+    booking_id: UUID,
+    request: dict,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Assign a room to a booking
+    
+    This endpoint delegates to the room allocation service
+    """
+    from app.services.room_allocation_service import RoomAllocationService
+    from app.schemas.room_allocation import AssignRoomRequest, AssignmentType
+    
+    # Extract room_id from request body
+    room_id = request.get("room_id")
+    if not room_id:
+        raise HTTPException(status_code=400, detail="room_id is required")
+    
+    # Create the proper request for room allocation service
+    allocation_request = AssignRoomRequest(
+        booking_id=booking_id,
+        room_id=UUID(room_id),
+        assignment_type=AssignmentType.MANUAL,
+        assignment_reason="Manual assignment via booking interface"
+    )
+    
+    # Use the room allocation service
+    allocation_service = RoomAllocationService(db)
+    result = await allocation_service.assign_room(allocation_request)
+    
+    return result
 
 @router.get("/statistics/summary", response_model=BookingStatistics)
 async def get_booking_statistics(

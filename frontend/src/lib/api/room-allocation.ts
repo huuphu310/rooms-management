@@ -163,6 +163,7 @@ export const roomAllocationApi = {
     accessibility_required?: boolean;
     features_required?: string[];
     exclude_rooms?: string[];
+    booking_id?: string;  // Include room assigned to this booking
   }): Promise<AvailableRoomsResponse> {
     const queryParams = new URLSearchParams();
     queryParams.append('check_in_date', params.check_in_date);
@@ -182,6 +183,9 @@ export const roomAllocationApi = {
     }
     if (params.exclude_rooms?.length) {
       queryParams.append('exclude_rooms', params.exclude_rooms.join(','));
+    }
+    if (params.booking_id) {
+      queryParams.append('booking_id', params.booking_id);
     }
     
     const response = await api.get(`/room-allocation/available-rooms?${queryParams}`);

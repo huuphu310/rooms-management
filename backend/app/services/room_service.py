@@ -145,10 +145,14 @@ class RoomService:
             if update_data:
                 update_data['updated_at'] = datetime.utcnow().isoformat()
                 
-                # Convert Decimal values to float for JSON serialization
+                # Convert Decimal values to float and time values to string for JSON serialization
+                from datetime import time as time_type
                 for key, value in update_data.items():
                     if hasattr(value, '__class__') and value.__class__.__name__ == 'Decimal':
                         update_data[key] = float(value)
+                    elif isinstance(value, time_type):
+                        # Convert time objects to string format HH:MM:SS for Supabase
+                        update_data[key] = value.strftime('%H:%M:%S')
                     elif isinstance(value, (int, float)) and key in ['base_price', 'weekend_price', 'holiday_price', 
                                                                      'extra_adult_charge', 'extra_child_charge']:
                         update_data[key] = float(value)

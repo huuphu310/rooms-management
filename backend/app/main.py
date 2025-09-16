@@ -10,8 +10,46 @@ from app.core.redis_client import RedisClient
 from app.core.logger import setup_logger, LoggingMiddleware
 from app.core.exceptions import BaseAPIException
 from app.core.websocket import websocket_manager
+from app.core.monitoring import monitoring
 from app.middleware.security import RequestLoggingMiddleware, SecurityHeadersMiddleware
+from app.middleware.newrelic_middleware import NewRelicMiddleware, add_newrelic_middleware
 from app.api.v1.api import api_router
+
+# Initialize Sentry for error tracking and performance monitoring
+import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
+
+def init_sentry():
+    """Initialize Sentry SDK with conditional configuration"""
+    if settings.SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.SENTRY_ENVIRONMENT,
+            # Set traces_sample_rate to capture performance data
+            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            # Set profiles_sample_rate to capture profiling data
+            profiles_sample_rate=settings.SENTRY_PROFILES_SAMPLE_RATE,
+            # Add data like request headers and IP for users
+            send_default_pii=True,
+            # Include release info if available
+            release=f"{settings.PROJECT_NAME}@{settings.VERSION}",
+            # Add integrations
+            integrations=[
+                LoggingIntegration(
+                    level=None,  # Capture all log levels
+                    event_level="WARNING"  # Send WARNING+ logs as events to Sentry
+                ),
+            ],
+        )
+        logger = setup_logger("app")
+        logger.info(f"Sentry initialized for environment: {settings.SENTRY_ENVIRONMENT}")
+    else:
+        # Setup logger normally if Sentry is not configured
+        logger = setup_logger("app")
+        logger.info("Sentry not configured, running without error tracking")
+
+# Initialize Sentry before anything else
+init_sentry()
 
 # Setup logger
 logger = setup_logger("app")
@@ -21,6 +59,10 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle"""
     # Startup
     logger.info("Starting up application...")
+    
+    # Initialize New Relic monitoring if configured
+    monitoring.initialize()
+    
     try:
         await init_database()
         logger.info("Database initialized")
@@ -119,6 +161,9 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
 
 # Add proxy headers middleware first (before CORS)
 app.add_middleware(ProxyHeadersMiddleware)
+
+# Add New Relic middleware if configured
+add_newrelic_middleware(app)
 
 # Set up CORS
 if settings.BACKEND_CORS_ORIGINS:

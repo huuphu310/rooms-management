@@ -298,6 +298,9 @@ export interface UnassignedBookingsResponse {
   };
 }
 
+// Shift Types for bookings
+export type ShiftType = 'day_shift' | 'night_shift' | 'full_day' | 'traditional';
+
 // Monthly Grid Data
 export interface RoomDailyStatus {
   date: string;
@@ -310,6 +313,17 @@ export interface RoomDailyStatus {
   special_notes?: string;
   rate?: number;
   block_reason?: string;
+  shift_type?: ShiftType;  // Added shift type information
+  day_shift_booking?: {
+    booking_id: string;
+    guest_name: string;
+    status: RoomStatus;
+  };
+  night_shift_booking?: {
+    booking_id: string;
+    guest_name: string;
+    status: RoomStatus;
+  };
 }
 
 export interface RoomGridData {

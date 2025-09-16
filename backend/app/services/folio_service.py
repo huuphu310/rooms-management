@@ -191,6 +191,93 @@ class FolioService:
             logger.error(f"Failed to create posting: {str(e)}")
             raise BadRequestException(f"Failed to create posting: {str(e)}")
     
+    async def create_deposit_invoice_only(
+        self,
+        booking_id: UUID,
+        deposit_amount: Optional[float] = None,
+        user_id: Optional[UUID] = None
+    ) -> Dict[str, Any]:
+        """Create a deposit invoice for a booking without processing payment"""
+        try:
+            # Get booking and folio
+            booking_result = self.db.table("bookings").select("""
+                *,
+                folios!bookings_folio_id_fkey(id, folio_number)
+            """).eq("id", str(booking_id)).execute()
+            
+            if not booking_result.data:
+                raise NotFoundException(f"Booking {booking_id} not found")
+            
+            booking = booking_result.data[0]
+            folio = booking.get('folios')
+            
+            if not folio:
+                folio = await self.create_folio_for_booking(booking_id, user_id)
+            
+            # Create deposit invoice if it doesn't exist
+            from app.services.billing_service_enhanced import BillingServiceEnhanced
+            from app.schemas.billing_enhanced import CreateDepositInvoice, DepositCalculation
+            from datetime import datetime, timedelta
+            
+            billing_service = BillingServiceEnhanced(self.db)
+            
+            # Check if deposit invoice already exists
+            existing_invoice = self.db.table("billing_invoices").select("*").eq(
+                "booking_id", str(booking_id)
+            ).eq("invoice_type", "deposit").execute()
+            
+            if existing_invoice.data:
+                logger.info(f"Deposit invoice already exists for booking {booking_id}")
+                return existing_invoice.data[0]
+            
+            # Use the provided deposit amount or get from booking
+            if deposit_amount is None:
+                deposit_amount = booking.get('deposit_required', 0)
+                
+            if not deposit_amount or deposit_amount <= 0:
+                # Fallback to 30% if no deposit amount specified
+                total_amount = booking.get('total_amount', 0)
+                deposit_amount = total_amount * 0.3
+            
+            # IMPORTANT: The deposit_amount provided by admin is the TOTAL including VAT
+            # We need to calculate the base amount from this total
+            # Formula: base_amount = total_amount / (1 + VAT_rate)
+            # Get VAT rate (default 10%)
+            vat_rate = booking.get('tax_percentage', 10) if booking.get('tax_percentage') else 10
+            
+            # Calculate base amount from total (admin-entered amount includes VAT)
+            base_deposit_amount = float(deposit_amount) / (1 + vat_rate / 100)
+            
+            # Create deposit invoice with the calculated base amount
+            due_date = (datetime.utcnow() + timedelta(days=2)).date()
+            deposit_invoice_data = CreateDepositInvoice(
+                booking_id=booking_id,
+                deposit_calculation=DepositCalculation(
+                    method="fixed_amount",
+                    value=base_deposit_amount  # Use base amount (VAT will be added in invoice)
+                ),
+                due_date=due_date,
+                payment_terms="Payment required within 48 hours to secure reservation",
+                notes=f"Deposit for booking {booking.get('booking_code', '')}"
+            )
+            
+            invoice = await billing_service.create_deposit_invoice(deposit_invoice_data)
+            logger.info(f"Created deposit invoice {invoice.invoice_number} for booking {booking_id}")
+            
+            # Keep booking status as pending since no payment was made
+            self.db.table("bookings").update({
+                "lifecycle_status": "pending_deposit",
+                "status": "pending",
+                "has_deposit": False,  # No deposit paid yet
+                "paid_amount": 0
+            }).eq("id", str(booking_id)).execute()
+            
+            return invoice.dict()
+            
+        except Exception as e:
+            logger.error(f"Failed to create deposit invoice: {str(e)}")
+            raise BadRequestException(f"Failed to create deposit invoice: {str(e)}")
+    
     async def process_deposit(
         self,
         booking_id: UUID,
@@ -215,6 +302,41 @@ class FolioService:
             
             if not folio:
                 folio = await self.create_folio_for_booking(booking_id, user_id)
+            
+            # Create deposit invoice if it doesn't exist
+            from app.services.billing_service_enhanced import BillingServiceEnhanced
+            from app.schemas.billing_enhanced import CreateDepositInvoice, DepositCalculation
+            from datetime import datetime, timedelta, date
+            
+            billing_service = BillingServiceEnhanced(self.db)
+            
+            # Check if deposit invoice already exists
+            existing_invoice = self.db.table("billing_invoices").select("id").eq(
+                "booking_id", str(booking_id)
+            ).eq("invoice_type", "deposit").execute()
+            
+            invoice_created = False
+            if not existing_invoice.data:
+                # Create deposit invoice with date (not datetime) for due_date
+                due_date = (datetime.utcnow() + timedelta(days=2)).date()
+                deposit_invoice_data = CreateDepositInvoice(
+                    booking_id=booking_id,
+                    deposit_calculation=DepositCalculation(
+                        method="percentage",
+                        value=30.0  # Default 30% deposit
+                    ),
+                    due_date=due_date,
+                    payment_terms="Payment required within 48 hours to secure reservation",
+                    notes=f"Deposit for booking {booking.get('booking_code', '')}"
+                )
+                
+                try:
+                    invoice = await billing_service.create_deposit_invoice(deposit_invoice_data)
+                    invoice_created = True
+                    logger.info(f"Created deposit invoice {invoice.invoice_number} for booking {booking_id}")
+                except Exception as e:
+                    logger.error(f"Failed to create deposit invoice: {str(e)}")
+                    # Continue processing even if invoice creation fails
             
             # Create deposit record
             deposit_data = {
@@ -241,17 +363,48 @@ class FolioService:
                 reference=transaction_id
             )
             
-            # Update booking status
-            new_status = 'confirmed' if amount >= Decimal(str(booking.get('deposit_amount', 0))) else 'pending_deposit'
+            # Update booking status based on deposit payment
+            deposit_required = Decimal(str(booking.get('deposit_amount', 0)))
+            
+            # Determine the appropriate statuses
+            if amount >= deposit_required and deposit_required > 0:
+                # Full deposit paid - confirm the booking
+                lifecycle_status = 'confirmed'
+                booking_status = 'confirmed'
+            else:
+                # Partial or no deposit - keep as pending
+                lifecycle_status = 'pending_deposit' 
+                booking_status = 'pending'
             
             self.db.table("bookings").update({
-                "lifecycle_status": new_status,
+                "lifecycle_status": lifecycle_status,
+                "status": booking_status,  # Update the main status field too
                 "has_deposit": True,
                 "paid_amount": float(amount)
             }).eq("id", str(booking_id)).execute()
             
             # Update folio balance
             await self._update_folio_balance(UUID(folio['id']))
+            
+            # If we created an invoice, record payment against it
+            if invoice_created or existing_invoice.data:
+                try:
+                    from app.schemas.billing_enhanced import RecordDepositPayment
+                    
+                    # Use the proper service method to record payment
+                    payment_data = RecordDepositPayment(
+                        booking_id=booking_id,
+                        amount=amount,
+                        payment_method=payment_method,
+                        reference_number=transaction_id,
+                        notes=f"Deposit payment for booking {booking.get('booking_code', '')}"
+                    )
+                    
+                    await billing_service.record_deposit_payment(payment_data)
+                    logger.info(f"Recorded payment of {amount} against deposit invoice for booking {booking_id}")
+                except Exception as e:
+                    logger.error(f"Failed to record payment against invoice: {str(e)}")
+                    # Continue even if payment recording fails
             
             logger.info(f"Processed deposit of {amount} for booking {booking_id}")
             return deposit

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit, Trash2, Calculator, DollarSign } from 'lucide-react';
+import { Plus, Edit, Trash2, Calculator, DollarSign, Clock, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -150,12 +150,11 @@ export const RoomTypesPage: React.FC = () => {
                   <TableHead>{t('roomTypes.typeName')}</TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>{t('roomTypes.basePrice')}</TableHead>
+                  <TableHead>{t('roomTypes.pricingMode')}</TableHead>
                   <TableHead>Weekend/Holiday</TableHead>
                   <TableHead>{t('roomTypes.occupancyDetails')}</TableHead>
                   <TableHead>{t('roomTypes.extraCharges')}</TableHead>
                   <TableHead>Size (m²)</TableHead>
-                  <TableHead>Bed/Bath</TableHead>
-                  <TableHead>Stay Nights</TableHead>
                   <TableHead>{t('common.status')}</TableHead>
                   <TableHead className="text-right">{t('common.actions')}</TableHead>
                 </TableRow>
@@ -175,6 +174,21 @@ export const RoomTypesPage: React.FC = () => {
                       <Badge variant="outline">{roomType.code || 'N/A'}</Badge>
                     </TableCell>
                     <TableCell>{formatCurrency(Number(roomType.base_price))}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {(roomType as any).pricing_mode === 'shift' ? (
+                          <>
+                            <Clock className="h-4 w-4 text-blue-500" />
+                            <span className="text-sm font-medium">{t('roomTypes.shiftPricing')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Calendar className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm">{t('roomTypes.traditionalPricing')}</span>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         {roomType.weekend_price && (
@@ -221,26 +235,6 @@ export const RoomTypesPage: React.FC = () => {
                       ) : roomType.size_sqm ? (
                         `${roomType.size_sqm}`
                       ) : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        {roomType.bed_configuration && (
-                          <div>{roomType.bed_configuration}</div>
-                        )}
-                        {roomType.bathroom_type && (
-                          <div className="text-muted-foreground">{roomType.bathroom_type}</div>
-                        )}
-                        {!roomType.bed_configuration && !roomType.bathroom_type && '-'}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        {roomType.min_stay_nights || roomType.max_stay_nights ? (
-                          <div>
-                            {roomType.min_stay_nights || 1}-{roomType.max_stay_nights || '∞'}
-                          </div>
-                        ) : '-'}
-                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={roomType.is_active ? 'default' : 'secondary'}>

@@ -91,8 +91,8 @@ export default function PaymentManagement() {
   const getStats = () => {
     const today = new Date().toISOString().split('T')[0]
     const todayPayments = payments.filter(p => p.payment_date === today)
-    const totalToday = todayPayments.reduce((sum, p) => sum + p.amount, 0)
-    const totalAmount = payments.reduce((sum, p) => sum + p.amount, 0)
+    const totalToday = todayPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    const totalAmount = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
 
     return {
       total: payments.length,

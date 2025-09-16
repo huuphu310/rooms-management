@@ -329,7 +329,7 @@ export const bookingsApi = {
 
   // Check availability
   checkAvailability: async (data: BookingAvailabilityRequest) => {
-    const response = await api.post('/bookings/availability', data)
+    const response = await api.post('/bookings/check-availability', data)
     return response.data as BookingAvailabilityResponse
   },
 

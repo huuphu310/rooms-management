@@ -58,6 +58,7 @@ class RoomStatus(str, Enum):
     ARRIVING = "arriving"
     DEPARTING = "departing"
     PRE_ASSIGNED = "pre_assigned"
+    CLEANING = "cleaning"
 
 
 class AssignmentStrategy(str, Enum):
@@ -290,6 +291,10 @@ class RoomDailyStatus(BaseModel):
     special_notes: Optional[str] = None
     rate: Optional[Decimal] = None
     block_reason: Optional[str] = None
+    # Shift-based booking fields
+    shift_type: Optional[str] = None  # 'day_shift', 'night_shift', 'full_day', 'traditional'
+    day_shift_booking: Optional[Dict[str, Any]] = None  # {'booking_id', 'guest_name', 'status'}
+    night_shift_booking: Optional[Dict[str, Any]] = None  # {'booking_id', 'guest_name', 'status'}
 
 
 class RoomGridData(BaseModel):
@@ -500,6 +505,7 @@ class AvailableRoomsRequest(BaseModel):
     accessibility_required: bool = False
     features_required: List[str] = []
     exclude_rooms: List[UUID] = []
+    booking_id: Optional[UUID] = None  # Include room assigned to this booking
 
 
 class AvailableRoomsResponse(BaseModel):

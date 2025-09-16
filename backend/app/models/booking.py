@@ -15,6 +15,12 @@ class BookingStatus(enum.Enum):
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
 
+class ShiftType(enum.Enum):
+    DAY_SHIFT = "day_shift"        # 9:00 AM - 4:30 PM (7.5 hours)
+    NIGHT_SHIFT = "night_shift"    # 5:30 PM - 8:30 AM next day (15 hours)
+    FULL_DAY = "full_day"          # Traditional 24-hour stay
+    TRADITIONAL = "traditional"     # Backward compatibility for existing bookings
+
 class Booking(Base):
     __tablename__ = "bookings"
 
@@ -50,6 +56,11 @@ class Booking(Base):
     
     special_requests = Column(String)
     internal_notes = Column(JSON)
+    
+    # Shift-based booking information
+    shift_type = Column(SQLEnum(ShiftType), default=ShiftType.TRADITIONAL)
+    shift_date = Column(Date)  # The specific date for this shift (for day shifts)
+    total_shifts = Column(Integer, default=1)  # Number of shifts booked (for multi-shift bookings)
     
     # Currency information
     selected_currency = Column(String(3), default="VND")

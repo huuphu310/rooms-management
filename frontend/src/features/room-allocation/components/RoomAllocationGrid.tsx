@@ -10,7 +10,8 @@ import type {
   MonthlyGridResponse, 
   RoomGridData, 
   RoomDailyStatus,
-  RoomStatus 
+  RoomStatus,
+  ShiftType 
 } from '@/types/room-allocation'
 import { 
   Calendar,
@@ -144,41 +145,93 @@ export default function RoomAllocationGrid({
     const dayStatus = room.daily_status.find(status => status.date === date)
     if (!dayStatus) return null
 
-    const colorClass = statusColors[dayStatus.status] || statusColors.available
     const isToday = date === new Date().toISOString().split('T')[0]
+    const hasShifts = dayStatus.day_shift_booking || dayStatus.night_shift_booking
+    const isFullDay = dayStatus.shift_type === 'full_day'
+    const isTraditional = !dayStatus.shift_type || dayStatus.shift_type === 'traditional'
+
+    // Determine cell background based on shift status
+    let cellBackground = 'bg-green-100 border-green-200' // Available by default
+    
+    if (dayStatus.status === 'blocked') {
+      cellBackground = 'bg-red-100 border-red-200'
+    } else if (dayStatus.status === 'maintenance') {
+      cellBackground = 'bg-gray-100 border-gray-200'
+    } else if (isFullDay || (dayStatus.day_shift_booking && dayStatus.night_shift_booking)) {
+      cellBackground = 'bg-blue-100 border-blue-200' // Fully occupied
+    } else if (hasShifts) {
+      cellBackground = 'bg-yellow-100 border-yellow-200' // Partially occupied
+    } else if (dayStatus.status === 'occupied' && isTraditional) {
+      cellBackground = 'bg-blue-100 border-blue-200' // Traditional booking
+    }
 
     return (
       <div
         key={`${room.room_id}-${date}`}
         className={`
-          min-h-[40px] border cursor-pointer transition-all hover:shadow-sm relative
-          ${colorClass}
+          min-h-[60px] border cursor-pointer transition-all hover:shadow-sm relative
+          ${cellBackground}
           ${isToday ? 'ring-2 ring-blue-400' : ''}
           ${dayStatus.is_vip ? 'ring-1 ring-yellow-400' : ''}
         `}
         onClick={() => handleCellClick(room, date)}
       >
-        <div className="p-1 text-xs">
-          <div className="flex items-center gap-1">
-            {getStatusIcon(dayStatus.status)}
-            {dayStatus.guest_name && (
-              <span className="truncate font-medium">
-                {dayStatus.guest_name.split(' ')[0]}
-              </span>
+        <div className="p-1 text-xs h-full flex flex-col justify-between">
+          {/* Show shift-based bookings */}
+          {hasShifts ? (
+            <div className="space-y-1">
+              {/* Day Shift */}
+              {dayStatus.day_shift_booking && (
+                <div className="flex items-center gap-1 bg-orange-50 rounded px-1">
+                  <span className="text-orange-600 font-semibold">D:</span>
+                  <span className="truncate text-xs">
+                    {dayStatus.day_shift_booking.guest_name.split(' ')[0]}
+                  </span>
+                </div>
+              )}
+              
+              {/* Night Shift */}
+              {dayStatus.night_shift_booking && (
+                <div className="flex items-center gap-1 bg-indigo-50 rounded px-1">
+                  <span className="text-indigo-600 font-semibold">N:</span>
+                  <span className="truncate text-xs">
+                    {dayStatus.night_shift_booking.guest_name.split(' ')[0]}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Traditional booking or available */
+            <div>
+              {dayStatus.guest_name && (
+                <div className="flex items-center gap-1">
+                  {getStatusIcon(dayStatus.status)}
+                  <span className="truncate font-medium">
+                    {dayStatus.guest_name.split(' ')[0]}
+                  </span>
+                  {isFullDay && (
+                    <span className="text-xs bg-blue-600 text-white px-1 rounded">24h</span>
+                  )}
+                </div>
+              )}
+              
+              {dayStatus.block_reason && (
+                <div className="text-xs truncate">{dayStatus.block_reason}</div>
+              )}
+            </div>
+          )}
+          
+          {/* Arrival/Departure indicators */}
+          <div className="flex gap-1">
+            {dayStatus.is_arrival && (
+              <span className="text-xs text-green-600 font-bold">IN</span>
+            )}
+            {dayStatus.is_departure && (
+              <span className="text-xs text-red-600 font-bold">OUT</span>
             )}
           </div>
           
-          {dayStatus.is_arrival && (
-            <div className="text-xs text-green-600 font-bold">IN</div>
-          )}
-          {dayStatus.is_departure && (
-            <div className="text-xs text-red-600 font-bold">OUT</div>
-          )}
-          
-          {dayStatus.block_reason && (
-            <div className="text-xs truncate">{dayStatus.block_reason}</div>
-          )}
-          
+          {/* VIP indicator */}
           {dayStatus.is_vip && (
             <div className="absolute top-0 right-0 text-yellow-500">⭐</div>
           )}
@@ -251,14 +304,45 @@ export default function RoomAllocationGrid({
       {/* Status Legend */}
       <Card>
         <CardContent className="py-4">
-          <div className="flex flex-wrap gap-4 items-center">
-            <span className="text-sm font-medium">Status Legend:</span>
-            {Object.entries(statusColors).map(([status, colorClass]) => (
-              <div key={status} className="flex items-center gap-2">
-                <div className={`w-4 h-4 rounded border ${colorClass}`} />
-                <span className="text-sm capitalize">{status.replace('_', ' ')}</span>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-4 items-center">
+              <span className="text-sm font-medium">Booking Status:</span>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border bg-green-100 border-green-200" />
+                <span className="text-sm">Available</span>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border bg-blue-100 border-blue-200" />
+                <span className="text-sm">Fully Occupied</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border bg-yellow-100 border-yellow-200" />
+                <span className="text-sm">Partially Occupied (Shift)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border bg-red-100 border-red-200" />
+                <span className="text-sm">Blocked</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded border bg-gray-100 border-gray-200" />
+                <span className="text-sm">Maintenance</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-4 items-center">
+              <span className="text-sm font-medium">Shift Indicators:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-orange-600 font-semibold bg-orange-50 px-2 py-1 rounded text-xs">D:</span>
+                <span className="text-sm">Day Shift (9AM-4:30PM)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-indigo-600 font-semibold bg-indigo-50 px-2 py-1 rounded text-xs">N:</span>
+                <span className="text-sm">Night Shift (5:30PM-8:30AM)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded">24h</span>
+                <span className="text-sm">Full Day</span>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -391,10 +475,41 @@ export default function RoomAllocationGrid({
                 </div>
               </div>
 
-              {selectedCell.status.guest_name && (
+              {/* Show shift bookings if available */}
+              {(selectedCell.status.day_shift_booking || selectedCell.status.night_shift_booking) && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Shift Bookings</label>
+                  
+                  {selectedCell.status.day_shift_booking && (
+                    <div className="p-2 bg-orange-50 rounded-md">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-orange-700">Day Shift (9:00 AM - 4:30 PM)</span>
+                        <Badge className="bg-orange-100 text-orange-800">Day</Badge>
+                      </div>
+                      <p className="text-sm mt-1">{selectedCell.status.day_shift_booking.guest_name}</p>
+                    </div>
+                  )}
+                  
+                  {selectedCell.status.night_shift_booking && (
+                    <div className="p-2 bg-indigo-50 rounded-md">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-indigo-700">Night Shift (5:30 PM - 8:30 AM)</span>
+                        <Badge className="bg-indigo-100 text-indigo-800">Night</Badge>
+                      </div>
+                      <p className="text-sm mt-1">{selectedCell.status.night_shift_booking.guest_name}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Traditional booking guest */}
+              {selectedCell.status.guest_name && !selectedCell.status.day_shift_booking && !selectedCell.status.night_shift_booking && (
                 <div>
                   <label className="text-sm font-medium">Guest</label>
                   <p className="text-sm mt-1">{selectedCell.status.guest_name}</p>
+                  {selectedCell.status.shift_type === 'full_day' && (
+                    <Badge className="mt-1 bg-blue-100 text-blue-800">Full Day (24 hours)</Badge>
+                  )}
                 </div>
               )}
 

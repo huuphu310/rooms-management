@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import Optional, List
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 
 from app.api.deps import (
     CurrentUser,
@@ -154,6 +154,86 @@ async def get_room_types(
             }
         }
 
+@router.put("/types/{room_type_id}")
+async def update_room_type(
+    room_type_id: UUID,
+    room_type_update: dict,  # Accept dict instead of schema to handle amenities field
+    current_user: dict = Depends(get_current_active_user),
+    db = Depends(get_supabase_service)
+):
+    """Update a room type - requires room update permission"""
+    try:
+        from app.api.deps import AuthService
+        from app.services.room_service import RoomService
+        from app.schemas.room import RoomTypeUpdate, RoomType
+        from decimal import Decimal
+        import json
+        from fastapi.encoders import jsonable_encoder
+        
+        logger.info(f"Updating room type {room_type_id} with data: {room_type_update}")
+        
+        # Check permission
+        has_permission = await AuthService.check_api_permission(
+            current_user, "rooms", "update", db
+        )
+        
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to update room types"
+            )
+        
+        # Handle amenities field - ensure it's an array
+        if 'amenities' in room_type_update:
+            if isinstance(room_type_update['amenities'], str):
+                # If it's a JSON string, parse it
+                try:
+                    room_type_update['amenities'] = json.loads(room_type_update['amenities'])
+                except:
+                    room_type_update['amenities'] = []
+            elif not isinstance(room_type_update['amenities'], list):
+                # If it's not a list, make it an empty list
+                room_type_update['amenities'] = []
+        
+        # Convert price fields to Decimal if they exist
+        price_fields = [
+            'base_price', 'weekend_price', 'holiday_price',
+            'day_shift_price', 'night_shift_price', 'full_day_price',
+            'weekend_day_shift_price', 'weekend_night_shift_price', 'weekend_full_day_price',
+            'holiday_day_shift_price', 'holiday_night_shift_price', 'holiday_full_day_price',
+            'extra_adult_charge', 'extra_child_charge', 'extra_person_charge',
+            'extra_single_bed_charge', 'extra_double_bed_charge',
+            'size_sqm_from', 'size_sqm_to'
+        ]
+        
+        for field in price_fields:
+            if field in room_type_update and room_type_update[field] is not None:
+                try:
+                    room_type_update[field] = Decimal(str(room_type_update[field]))
+                except:
+                    logger.warning(f"Could not convert {field} to Decimal: {room_type_update[field]}")
+        
+        # Create the update schema
+        update_schema = RoomTypeUpdate(**room_type_update)
+        
+        # Use the room service to update
+        room_service = RoomService(db)
+        updated_room_type = await room_service.update_room_type(room_type_id, update_schema)
+        
+        logger.info(f"Room type {room_type_id} updated successfully")
+        
+        # Use FastAPI's jsonable_encoder to handle all special types (time, Decimal, UUID, etc.)
+        return jsonable_encoder(updated_room_type)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating room type: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating room type: {str(e)}"
+        )
+
 @router.get("/{room_id}")
 async def get_room(
     room_id: UUID,
@@ -170,3 +250,77 @@ async def get_room(
     except Exception as e:
         logger.error(f"Error getting room: {str(e)}")
         return {"error": str(e)}
+
+@router.post("/{room_id}/mark-cleaned")
+async def mark_room_cleaned(
+    room_id: UUID,
+    current_user: dict = Depends(get_current_active_user),
+    db = Depends(get_supabase_service)
+):
+    """Mark a room as cleaned and change status from cleaning to available"""
+    try:
+        from app.api.deps import AuthService
+        from app.core.database_pool import db_pool
+        
+        # Check permission
+        has_permission = await AuthService.check_api_permission(
+            current_user, "rooms", "update", db
+        )
+        
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to update room status"
+            )
+        
+        # Use pooled service client to bypass RLS
+        service_db = db_pool.get_service_client()
+        
+        # First check if room exists and is in cleaning status
+        room_response = service_db.table("rooms").select("*").eq("id", str(room_id)).single().execute()
+        
+        if not room_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
+            )
+        
+        room = room_response.data
+        
+        # Check if room is in cleaning status
+        if room.get('status') != 'cleaning':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Room is not in cleaning status. Current status: {room.get('status')}"
+            )
+        
+        # Update room status to available
+        update_response = service_db.table("rooms").update({
+            'status': 'available',
+            'status_reason': 'Cleaning completed',
+            'cleaning_started_at': None,  # Clear cleaning start time
+            'updated_at': datetime.now().isoformat()
+        }).eq("id", str(room_id)).execute()
+        
+        if not update_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update room status"
+            )
+        
+        logger.info(f"Room {room_id} marked as cleaned by user {current_user.get('id')}")
+        
+        return {
+            "success": True,
+            "message": f"Room {room.get('room_number')} has been marked as cleaned and is now available",
+            "room": update_response.data[0]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking room as cleaned: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating room status: {str(e)}"
+        )

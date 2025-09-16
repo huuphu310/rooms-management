@@ -100,6 +100,13 @@ except ImportError as e:
     folio_available = False
 
 try:
+    from app.api.v1.endpoints import checkout
+    checkout_available = True
+except ImportError as e:
+    print(f"Checkout module import failed: {e}")
+    checkout_available = False
+
+try:
     from app.api.v1.endpoints import pos
     pos_available = True
 except ImportError as e:
@@ -164,6 +171,9 @@ if payment_integration_available:
 
 if folio_available:
     api_router.include_router(folio.router, prefix="/folio", tags=["Folio"])
+
+if checkout_available:
+    api_router.include_router(checkout.router, prefix="/checkout", tags=["Checkout"])
 
 if pos_available:
     api_router.include_router(pos.router, prefix="/pos", tags=["POS"])

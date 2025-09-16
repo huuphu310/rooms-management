@@ -41,6 +41,7 @@ pylint==3.0.3
 
 # Monitoring & Logging
 python-json-logger==2.0.7
+sentry-sdk[fastapi]==2.20.0
 
 # PDF Generation
 reportlab==4.0.8
@@ -51,3 +52,7 @@ pillow==10.2.0
 
 # CORS
 fastapi-cors==0.0.6
+newrelic==10.17.0
+
+# Sentry
+sentry-sdk[flask]==2.20.0

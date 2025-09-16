@@ -203,19 +203,30 @@ export function PricingTab({ form, totals, priceDetails, calculatingPrice, t, se
                 
                 {(totals.extraSingleBeds > 0 || totals.extraDoubleBeds > 0) && (
                   <div className="pt-2 border-t space-y-1">
-                    {totals.extraSingleBeds > 0 && (
+                    {(() => {
+                      const pricingMode = (totals.selectedRoomType as any)?.pricing_mode || 'traditional'
+                      const shiftType = form.watch('shift_type') || 'traditional'
+                      const units = (pricingMode === 'shift' && (shiftType === 'day_shift' || shiftType === 'night_shift' || shiftType === 'full_day'))
+                        ? (shiftType === 'full_day' ? 2 : 1)
+                        : totals.nights || 1
+                      return (
+                        <>
+                        {totals.extraSingleBeds > 0 && (
                       <div className="flex justify-between">
                         <span>Single Beds Needed:</span>
-                        <span className="font-medium text-green-600">{totals.extraSingleBeds} x {formatPrice(Number((totals.selectedRoomType as any)?.extra_single_bed_charge || 0))}</span>
+                        <span className="font-medium text-green-600">{totals.extraSingleBeds} x {formatPrice(Number((totals.selectedRoomType as any)?.extra_single_bed_charge || 0))}{units>1?` x ${units}`:''}</span>
                       </div>
-                    )}
-                    
-                    {totals.extraDoubleBeds > 0 && (
+                        )}
+                        
+                        {totals.extraDoubleBeds > 0 && (
                       <div className="flex justify-between">
                         <span>Double Beds Needed:</span>
-                        <span className="font-medium text-green-600">{totals.extraDoubleBeds} x {formatPrice(Number((totals.selectedRoomType as any)?.extra_double_bed_charge || 0))}</span>
+                        <span className="font-medium text-green-600">{totals.extraDoubleBeds} x {formatPrice(Number((totals.selectedRoomType as any)?.extra_double_bed_charge || 0))}{units>1?` x ${units}`:''}</span>
                       </div>
-                    )}
+                        )}
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
                 
@@ -393,27 +404,27 @@ export function PricingTab({ form, totals, priceDetails, calculatingPrice, t, se
                   30% {t('bookings.ofTotalAmount')}
                 </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {t('bookings.depositWillBeRequiredAtBooking')}
-              </p>
             </div>
 
             <FormField
               control={form.control}
-              name="deposit_paid"
+              name="deposit_amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('bookings.depositPaid')}</FormLabel>
+                  <FormLabel className="text-green-600 dark:text-green-400">{t('bookings.actualDepositAmount')}</FormLabel>
                   <FormControl>
                     <Input 
                       type="number" 
                       min="0"
+                      step="1000"
+                      className="border-green-500 focus:border-green-600"
                       {...field}
                       onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                      placeholder={t('bookings.enterActualDepositAmount')}
                     />
                   </FormControl>
-                  <FormDescription>
-                    {t('bookings.amountAlreadyPaid')}
+                  <FormDescription className="text-green-600 dark:text-green-400">
+                    {t('bookings.adminOverrideDepositAmount')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -496,23 +507,19 @@ export function PricingTab({ form, totals, priceDetails, calculatingPrice, t, se
               </span>
             </div>
             
-            {form.watch('deposit_paid') > 0 && (
-              <>
-                <div className="flex justify-between text-sm">
-                  <span>{t('bookings.depositPaid')}:</span>
-                  <span className="font-medium text-green-600">
-                    {formatPrice(form.watch('deposit_paid') || 0)}
-                  </span>
-                </div>
-                
-                <div className="flex justify-between text-sm">
-                  <span>{t('bookings.balanceDue')}:</span>
-                  <span className="font-medium text-red-600">
-                    {formatPrice(totals.total - (form.watch('deposit_paid') || 0))}
-                  </span>
-                </div>
-              </>
-            )}
+            <div className="flex justify-between text-sm pt-2 border-t">
+              <span>{t('bookings.actualDeposit')}:</span>
+              <span className="font-medium text-green-600">
+                {formatPrice(form.watch('deposit_amount') || 0)}
+              </span>
+            </div>
+            
+            <div className="flex justify-between text-sm">
+              <span>{t('bookings.remainingBalance')}:</span>
+              <span className="font-medium">
+                {formatPrice(totals.total - (form.watch('deposit_amount') || 0))}
+              </span>
+            </div>
           </div>
         </div>
       </CardContent>

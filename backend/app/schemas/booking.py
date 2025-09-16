@@ -34,6 +34,12 @@ class BookingSource(str, Enum):
     WALK_IN = "walk_in"
     OTA = "ota"
 
+class ShiftType(str, Enum):
+    DAY_SHIFT = "day_shift"        # 9:00 AM - 4:30 PM
+    NIGHT_SHIFT = "night_shift"    # 5:30 PM - 8:30 AM next day
+    FULL_DAY = "full_day"          # Both shifts combined
+    TRADITIONAL = "traditional"     # Traditional overnight stay
+
 class BookingBase(BaseModel):
     # Booking type
     booking_type: BookingType = BookingType.INDIVIDUAL
@@ -57,6 +63,11 @@ class BookingBase(BaseModel):
     check_out_time: time = Field(default_factory=lambda: time(12, 0))
     early_check_in: bool = False
     late_check_out: bool = False
+    
+    # Shift-based booking fields
+    shift_type: ShiftType = ShiftType.TRADITIONAL
+    shift_date: Optional[date] = None  # Specific date for shift bookings
+    total_shifts: int = Field(ge=1, default=1)  # Number of shifts booked
     
     # Guest Count
     adults: int = Field(ge=1, default=1)
@@ -82,6 +93,7 @@ class BookingBase(BaseModel):
     
     # Deposit
     deposit_required: Decimal = Field(decimal_places=2, default=Decimal("0"))
+    deposit_amount: Optional[Decimal] = Field(default=Decimal("0"), decimal_places=2, description="Actual deposit amount entered by admin (overrides deposit_required)")
     deposit_paid: Decimal = Field(decimal_places=2, default=Decimal("0"))
     
     # Source and Channel
@@ -130,7 +142,7 @@ class BookingBase(BaseModel):
 
 class BookingCreate(BookingBase):
     """Schema for creating a new booking"""
-    pass
+    idempotency_key: Optional[str] = Field(None, description="Unique key to prevent duplicate submissions")
 
 class BookingUpdate(BaseModel):
     """Schema for updating an existing booking"""
@@ -164,6 +176,7 @@ class BookingUpdate(BaseModel):
     
     # Deposit
     deposit_required: Optional[Decimal] = Field(None, decimal_places=2)
+    deposit_amount: Optional[Decimal] = Field(default=Decimal("0"), decimal_places=2, description="Actual deposit amount entered by admin (overrides deposit_required)")
     deposit_paid: Optional[Decimal] = Field(None, decimal_places=2)
     
     # Special Requests and Notes

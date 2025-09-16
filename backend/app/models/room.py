@@ -1,9 +1,9 @@
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, DECIMAL, DateTime, JSON, CheckConstraint
+from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, DECIMAL, DateTime, JSON, CheckConstraint, Time
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 
 class RoomType(Base):
     __tablename__ = "room_types"
@@ -12,11 +12,35 @@ class RoomType(Base):
     name = Column(String(100), nullable=False)
     code = Column(String(20))  # e.g., 'STD', 'DLX', 'STE'
     
-    # Pricing
+    # Traditional Pricing (maintained for backward compatibility)
     base_price = Column(DECIMAL(10, 2), nullable=False)
     weekend_price = Column(DECIMAL(10, 2))
     holiday_price = Column(DECIMAL(10, 2))
     extra_person_charge = Column(DECIMAL(10, 2), default=0)  # Deprecated
+    
+    # Shift-based Pricing
+    day_shift_price = Column(DECIMAL(10, 2))  # 9:00-16:30 (7.5 hours)
+    night_shift_price = Column(DECIMAL(10, 2))  # 17:30-8:30 next day (15 hours)
+    full_day_price = Column(DECIMAL(10, 2))  # Both shifts combined
+    
+    # Weekend shift pricing (optional overrides)
+    weekend_day_shift_price = Column(DECIMAL(10, 2))
+    weekend_night_shift_price = Column(DECIMAL(10, 2))
+    weekend_full_day_price = Column(DECIMAL(10, 2))
+    
+    # Holiday shift pricing (optional overrides)
+    holiday_day_shift_price = Column(DECIMAL(10, 2))
+    holiday_night_shift_price = Column(DECIMAL(10, 2))
+    holiday_full_day_price = Column(DECIMAL(10, 2))
+    
+    # Shift configuration (can be customized per room type)
+    day_shift_start_time = Column(Time, default=time(9, 0))  # 9:00 AM
+    day_shift_end_time = Column(Time, default=time(16, 30))  # 4:30 PM
+    night_shift_start_time = Column(Time, default=time(17, 30))  # 5:30 PM
+    night_shift_end_time = Column(Time, default=time(8, 30))  # 8:30 AM next day
+    
+    # Pricing mode: 'traditional' (per night) or 'shift' (per shift)
+    pricing_mode = Column(String(20), default='traditional')
     
     # Capacity
     standard_occupancy = Column(Integer, default=2)
@@ -66,6 +90,7 @@ class RoomType(Base):
         CheckConstraint('max_occupancy >= 1 AND max_occupancy <= 10', name='valid_max_occupancy'),
         CheckConstraint('min_occupancy >= 1 AND min_occupancy <= max_occupancy', name='valid_min_occupancy'),
         CheckConstraint('min_stay_nights >= 1', name='valid_min_stay'),
+        CheckConstraint("pricing_mode IN ('traditional', 'shift')", name='valid_pricing_mode'),
     )
 
 class Room(Base):

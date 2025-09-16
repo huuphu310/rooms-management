@@ -58,13 +58,14 @@ export default function Customers() {
     }
   };
 
-  const filteredCustomers = Array.isArray(customers) 
-    ? customers.filter(customer =>
-        customer.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (customer.phone && customer.phone.toLowerCase().includes(searchTerm.toLowerCase()))
-      )
-    : [];
+  // Ensure customers is always an array for filtering
+  const safeCustomers = Array.isArray(customers) ? customers : [];
+  
+  const filteredCustomers = safeCustomers.filter(customer =>
+    customer.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (customer.phone && customer.phone.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -105,7 +106,7 @@ export default function Customers() {
             <CardTitle className="text-sm font-medium">{t('customers.totalCustomers')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{Array.isArray(customers) ? customers.length : 0}</div>
+            <div className="text-2xl font-bold">{safeCustomers.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -114,7 +115,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Array.isArray(customers) ? customers.filter(c => c.status === 'vip').length : 0}
+              {safeCustomers.filter(c => c?.status === 'vip').length}
             </div>
           </CardContent>
         </Card>
@@ -124,7 +125,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Array.isArray(customers) ? customers.filter(c => c.status === 'active').length : 0}
+              {safeCustomers.filter(c => c?.status === 'active').length}
             </div>
           </CardContent>
         </Card>
@@ -134,7 +135,7 @@ export default function Customers() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(Array.isArray(customers) ? customers.reduce((sum, c) => sum + c.total_spent, 0) : 0)}
+              {formatCurrency(safeCustomers.reduce((sum, c) => sum + (c?.total_spent || 0), 0))}
             </div>
           </CardContent>
         </Card>

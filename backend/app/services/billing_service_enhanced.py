@@ -387,8 +387,9 @@ class BillingServiceEnhanced:
         # Update invoice payment status
         await self._update_invoice_payment_status(payment_data.invoice_id)
         
-        # Check booking payment completion
-        await self._check_booking_payment_completion(payment_data.booking_id)
+        # Only payments against the deposit invoice should update booking lifecycle
+        if invoice.invoice_type == InvoiceType.DEPOSIT:
+            await self._check_booking_payment_completion(payment_data.booking_id)
 
         return payments
 
@@ -500,8 +501,8 @@ class BillingServiceEnhanced:
         # Update invoice payment status
         await self._update_invoice_payment_status(payment_data.invoice_id)
         
-        # Check if booking is fully paid
-        if invoice_record.get("booking_id"):
+        # Only update booking status when this payment is for a deposit invoice
+        if invoice_record.get("booking_id") and invoice_record.get("invoice_type") == "deposit":
             await self._check_booking_payment_completion(UUID(invoice_record["booking_id"]))
         
         return self._format_payment_response(result.data[0])
@@ -1082,31 +1083,44 @@ class BillingServiceEnhanced:
                 .execute()
 
     async def _check_booking_payment_completion(self, booking_id: UUID):
-        """Check if booking payment meets requirements and update status"""
+        """Check if booking payment meets requirements and update booking lifecycle/status.
+
+        Important: check-in logic validates bookings.lifecycle_status in
+        ['confirmed', 'guaranteed']. When deposit is paid (or fully paid),
+        we must also flip lifecycle_status to 'confirmed' so check-in can proceed.
+        """
         summary = await self.get_booking_payment_summary(booking_id)
-        
+
         # Get booking details to check deposit requirement
-        booking = self.db.table("bookings").select("*").eq("id", str(booking_id)).execute()
+        booking = self.db.table("bookings").select("deposit_amount, lifecycle_status, status, payment_status").eq("id", str(booking_id)).execute()
         if not booking.data:
             return
-        
+
         booking_data = booking.data[0]
         deposit_amount = Decimal(str(booking_data.get("deposit_amount", 0)))
         total_paid = Decimal(str(summary.payment_summary.total_paid))
-        
-        # Update booking status based on payment (removed payment_status field updates)
+
+        updates: dict = {}
+
         if summary.payment_summary.is_fully_paid:
-            # Fully paid - can be checked in directly
-            self.db.table("bookings")\
-                .update({"status": "confirmed"})\
-                .eq("id", str(booking_id))\
-                .execute()
+            # Fully paid - mark confirmed across both fields
+            updates.update({
+                "status": "confirmed",
+                "lifecycle_status": "confirmed",
+                "payment_status": "fully_paid",
+                "has_deposit": True
+            })
         elif deposit_amount > 0 and total_paid >= deposit_amount:
-            # Deposit paid - confirmed but needs room assignment
-            self.db.table("bookings")\
-                .update({"status": "confirmed"})\
-                .eq("id", str(booking_id))\
-                .execute()
+            # Deposit threshold satisfied - booking becomes confirmed
+            updates.update({
+                "status": "confirmed",
+                "lifecycle_status": "confirmed",
+                "payment_status": "deposit_paid",
+                "has_deposit": True
+            })
+
+        if updates:
+            self.db.table("bookings").update(updates).eq("id", str(booking_id)).execute()
         # Note: No need to update status for partial payments - keep as "pending"
 
     async def _process_successful_qr_payment(self, qr_payment: Dict[str, Any], webhook_data: Dict[str, Any]):
@@ -1131,9 +1145,12 @@ class BillingServiceEnhanced:
         
         await self.create_payment(payment_code, payment_create)
         
-        # Update invoice and booking status
+        # Update invoice status
         await self._update_invoice_payment_status(UUID(qr_payment["invoice_id"]))
-        await self._check_booking_payment_completion(UUID(qr_payment["booking_id"]))
+        # Only update booking lifecycle when this is a deposit invoice
+        inv = self.db.table("billing_invoices").select("invoice_type").eq("id", qr_payment["invoice_id"]).execute()
+        if inv.data and inv.data[0].get("invoice_type") == "deposit":
+            await self._check_booking_payment_completion(UUID(qr_payment["booking_id"]))
 
     async def _process_overpayment(self, qr_payment: Dict[str, Any], webhook_data: Dict[str, Any]):
         """Handle overpayment scenario"""

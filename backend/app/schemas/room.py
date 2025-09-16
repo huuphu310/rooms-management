@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, ConfigDict, validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from uuid import UUID
 from enum import Enum
@@ -21,6 +21,10 @@ class RoomView(str, Enum):
     POOL = "pool"
     NONE = "none"
 
+class PricingMode(str, Enum):
+    TRADITIONAL = "traditional"  # Per night pricing
+    SHIFT = "shift"  # Per shift pricing
+
 # Room Type Schemas
 class RoomTypeBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -31,6 +35,31 @@ class RoomTypeBase(BaseModel):
     weekend_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     holiday_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     extra_person_charge: Decimal = Field(default=0, ge=0, decimal_places=2)  # Deprecated
+    
+    # Shift-based Pricing
+    pricing_mode: PricingMode = Field(default=PricingMode.TRADITIONAL)
+    day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Weekend shift pricing overrides
+    weekend_day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    weekend_night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    weekend_full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Holiday shift pricing overrides
+    holiday_day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    holiday_night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    holiday_full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Shift time configuration
+    day_shift_start_time: Optional[time] = Field(default=time(9, 0))
+    day_shift_end_time: Optional[time] = Field(default=time(16, 30))
+    night_shift_start_time: Optional[time] = Field(default=time(17, 30))
+    night_shift_end_time: Optional[time] = Field(default=time(8, 30))
+    
+    # Cleaning time configuration
+    cleaning_time_minutes: int = Field(default=30, ge=0, le=240, description="Minimum time in minutes required for cleaning between shifts")
     
     # Capacity
     standard_occupancy: int = Field(default=2, ge=1, le=10)  # Keep for backward compatibility
@@ -98,6 +127,31 @@ class RoomTypeUpdate(BaseModel):
     base_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     weekend_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     holiday_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Shift-based Pricing
+    pricing_mode: Optional[PricingMode] = None
+    day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Weekend shift pricing overrides
+    weekend_day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    weekend_night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    weekend_full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Holiday shift pricing overrides
+    holiday_day_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    holiday_night_shift_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    holiday_full_day_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    
+    # Shift time configuration
+    day_shift_start_time: Optional[time] = None
+    day_shift_end_time: Optional[time] = None
+    night_shift_start_time: Optional[time] = None
+    night_shift_end_time: Optional[time] = None
+    
+    # Cleaning time configuration
+    cleaning_time_minutes: Optional[int] = Field(None, ge=0, le=240, description="Minimum time in minutes required for cleaning between shifts")
     standard_occupancy: Optional[int] = Field(None, ge=1, le=10)  # Keep for backward compatibility
     max_occupancy: Optional[int] = Field(None, ge=1, le=10)
     min_occupancy: Optional[int] = Field(None, ge=1, le=10)  # Keep for backward compatibility
@@ -193,6 +247,8 @@ class RoomBase(BaseModel):
     # Housekeeping
     housekeeping_notes: Optional[str] = None
     cleaning_duration_minutes: int = Field(default=30, ge=0)
+    cleaning_duration_hours: int = Field(default=2, ge=0, le=24)  # Duration in hours for cleaning
+    cleaning_started_at: Optional[datetime] = None  # When cleaning started after checkout
     cleaning_priority: int = Field(default=5, ge=1, le=10)
     
     # General notes
@@ -307,6 +363,10 @@ class PriceCalculationRequest(BaseModel):
     check_out_date: datetime
     occupancy: OccupancyDetails
     currency: Optional[str] = "VND"  # VND or USD
+    # Shift-based pricing fields
+    shift_type: Optional[str] = None  # 'day_shift', 'night_shift', 'full_day', 'traditional'
+    shift_date: Optional[datetime] = None  # For shift bookings
+    total_shifts: Optional[int] = Field(None, ge=1)
     
 class PriceCalculationResponse(BaseModel):
     base_price: Decimal
@@ -317,6 +377,11 @@ class PriceCalculationResponse(BaseModel):
     currency: str
     nights: int
     breakdown: Dict[str, Any]
+    # Shift-based pricing response fields
+    pricing_mode: Optional[str] = None  # 'traditional' or 'shift'
+    shift_type: Optional[str] = None
+    shift_price: Optional[Decimal] = None
+    total_shifts: Optional[int] = None
 
 # Multi-language support
 class Language(str, Enum):

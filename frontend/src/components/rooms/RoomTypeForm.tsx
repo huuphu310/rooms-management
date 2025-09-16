@@ -25,6 +25,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { RoomType } from '@/services/roomService';
+import { ShiftPricingConfig } from './ShiftPricingConfig';
 
 const roomTypeSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
@@ -47,6 +48,22 @@ const roomTypeSchema = z.object({
   description: z.string().optional(),
   amenities: z.array(z.string()).optional(),
   is_active: z.boolean().optional(),
+  cleaning_time_minutes: z.number().min(0).max(240).optional(),
+  // Shift-based pricing fields
+  pricing_mode: z.enum(['traditional', 'shift']).optional(),
+  day_shift_price: z.number().min(0).optional(),
+  night_shift_price: z.number().min(0).optional(),
+  full_day_price: z.number().min(0).optional(),
+  weekend_day_shift_price: z.number().min(0).optional(),
+  weekend_night_shift_price: z.number().min(0).optional(),
+  weekend_full_day_price: z.number().min(0).optional(),
+  holiday_day_shift_price: z.number().min(0).optional(),
+  holiday_night_shift_price: z.number().min(0).optional(),
+  holiday_full_day_price: z.number().min(0).optional(),
+  day_shift_start_time: z.string().optional(),
+  day_shift_end_time: z.string().optional(),
+  night_shift_start_time: z.string().optional(),
+  night_shift_end_time: z.string().optional(),
 }).refine(data => {
   if (data.weekend_price && data.weekend_price < data.base_price) {
     return false;
@@ -106,10 +123,11 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
   roomType,
   loading,
 }) => {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   
   const form = useForm<RoomTypeFormValues>({
     resolver: zodResolver(roomTypeSchema),
+    mode: 'onChange', // Enable validation on change
     defaultValues: {
       name: '',
       base_price: 0,
@@ -130,11 +148,29 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
       description: '',
       amenities: [],
       is_active: true,
+      // Shift pricing defaults
+      pricing_mode: 'traditional',
+      day_shift_price: 0,
+      night_shift_price: 0,
+      full_day_price: 0,
+      weekend_day_shift_price: undefined,
+      weekend_night_shift_price: undefined,
+      weekend_full_day_price: undefined,
+      holiday_day_shift_price: undefined,
+      holiday_night_shift_price: undefined,
+      holiday_full_day_price: undefined,
+      day_shift_start_time: '09:00',
+      day_shift_end_time: '16:30',
+      night_shift_start_time: '17:30',
+      night_shift_end_time: '08:30',
     },
   });
 
   useEffect(() => {
     if (roomType) {
+      // Ensure amenities is always an array
+      const amenitiesValue = Array.isArray(roomType.amenities) ? roomType.amenities : [];
+      
       form.reset({
         name: roomType.name,
         base_price: Number(roomType.base_price),
@@ -153,22 +189,124 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
         min_stay_nights: roomType.min_stay_nights ? Number(roomType.min_stay_nights) : undefined,
         max_stay_nights: roomType.max_stay_nights ? Number(roomType.max_stay_nights) : undefined,
         description: roomType.description || '',
-        amenities: roomType.amenities || [],
+        amenities: amenitiesValue,
         is_active: roomType.is_active,
+        // Shift pricing fields
+        pricing_mode: (roomType as any).pricing_mode || 'traditional',
+        day_shift_price: (roomType as any).day_shift_price ? Number((roomType as any).day_shift_price) : 0,
+        night_shift_price: (roomType as any).night_shift_price ? Number((roomType as any).night_shift_price) : 0,
+        full_day_price: (roomType as any).full_day_price ? Number((roomType as any).full_day_price) : 0,
+        weekend_day_shift_price: (roomType as any).weekend_day_shift_price ? Number((roomType as any).weekend_day_shift_price) : undefined,
+        weekend_night_shift_price: (roomType as any).weekend_night_shift_price ? Number((roomType as any).weekend_night_shift_price) : undefined,
+        weekend_full_day_price: (roomType as any).weekend_full_day_price ? Number((roomType as any).weekend_full_day_price) : undefined,
+        holiday_day_shift_price: (roomType as any).holiday_day_shift_price ? Number((roomType as any).holiday_day_shift_price) : undefined,
+        holiday_night_shift_price: (roomType as any).holiday_night_shift_price ? Number((roomType as any).holiday_night_shift_price) : undefined,
+        holiday_full_day_price: (roomType as any).holiday_full_day_price ? Number((roomType as any).holiday_full_day_price) : undefined,
+        day_shift_start_time: (roomType as any).day_shift_start_time || '09:00',
+        day_shift_end_time: (roomType as any).day_shift_end_time || '16:30',
+        night_shift_start_time: (roomType as any).night_shift_start_time || '17:30',
+        night_shift_end_time: (roomType as any).night_shift_end_time || '08:30',
+        cleaning_time_minutes: (roomType as any).cleaning_time_minutes || 30,
       });
+      
+      // Manually set amenities to ensure it's always an array
+      form.setValue('amenities', amenitiesValue);
     } else {
       form.reset();
+      // Ensure amenities is set to an empty array after reset
+      form.setValue('amenities', []);
+      // Set default cleaning time
+      form.setValue('cleaning_time_minutes', 30);
     }
   }, [roomType, form]);
 
   const handleSubmit = async (values: RoomTypeFormValues) => {
     try {
-      await onSubmit(values);
+      // Ensure amenities is always an array
+      const submissionValues = {
+        ...values,
+        amenities: Array.isArray(values.amenities) ? values.amenities : []
+      };
+      console.log('Submitting room type form with values:', submissionValues);
+      await onSubmit(submissionValues);
       onClose();
     } catch (error) {
       console.error('Error submitting form:', error);
+      // Don't close the dialog on error so user can see what went wrong
     }
   };
+
+  // Calculate time gap between shifts
+  const calculateShiftGap = (endTime: string, startTime: string): number => {
+    // Parse times (format: HH:MM)
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    
+    // Convert to minutes
+    let endMinutes = endHour * 60 + endMin;
+    let startMinutes = startHour * 60 + startMin;
+    
+    // If night shift ends next day (e.g., ends at 08:30, day starts at 09:00)
+    if (startMinutes < endMinutes) {
+      // This means the end time is actually on the next day
+      startMinutes += 24 * 60; // Add 24 hours
+    }
+    
+    return startMinutes - endMinutes;
+  };
+
+  // Check if cleaning time is valid for current shift configuration
+  const validateCleaningTime = (): { isValid: boolean; message?: string } => {
+    const pricingMode = form.watch('pricing_mode');
+    
+    if (pricingMode !== 'shift') {
+      return { isValid: true }; // No validation needed for traditional pricing
+    }
+    
+    const cleaningTime = form.watch('cleaning_time_minutes') || 30;
+    const dayShiftEnd = form.watch('day_shift_end_time') || '16:30';
+    const nightShiftStart = form.watch('night_shift_start_time') || '17:30';
+    const nightShiftEnd = form.watch('night_shift_end_time') || '08:30';
+    const dayShiftStart = form.watch('day_shift_start_time') || '09:00';
+    
+    // Calculate gaps
+    const dayToNightGap = calculateShiftGap(dayShiftEnd, nightShiftStart);
+    const nightToDayGap = calculateShiftGap(nightShiftEnd, dayShiftStart);
+    
+    const minGap = Math.min(dayToNightGap, nightToDayGap);
+    
+    if (cleaningTime > minGap) {
+      return {
+        isValid: false,
+        message: t('roomTypes.cleaningTimeExceedsGap', { 
+          cleaningTime, 
+          minGap,
+          gap: minGap === dayToNightGap ? t('roomTypes.dayToNightShift') : t('roomTypes.nightToDayShift')
+        })
+      };
+    }
+    
+    return { isValid: true };
+  };
+
+  const cleaningTimeValidation = validateCleaningTime();
+
+  // Debug: Log form state and errors, and fix amenities if needed
+  React.useEffect(() => {
+    const subscription = form.watch((value) => {
+      // Fix amenities if it's not an array
+      if (value.amenities && !Array.isArray(value.amenities)) {
+        console.log('Fixing amenities - was:', value.amenities);
+        form.setValue('amenities', [], { shouldValidate: false });
+      }
+      
+      const errors = form.formState.errors;
+      if (Object.keys(errors).length > 0) {
+        console.log('Form validation errors:', errors);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -185,7 +323,14 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit, (errors) => {
+            console.error('Form validation failed:', errors);
+            // Show first error message to user
+            const firstError = Object.values(errors)[0];
+            if (firstError && 'message' in firstError) {
+              alert(`Validation error: ${firstError.message}`);
+            }
+          })} className="space-y-4">
             <FormField
               control={form.control}
               name="name"
@@ -239,6 +384,27 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
               />
             </div>
 
+            {/* Shift-based Pricing Configuration */}
+            <ShiftPricingConfig
+              form={form}
+              pricingMode={form.watch('pricing_mode') || 'traditional'}
+              dayShiftPrice={form.watch('day_shift_price') || 0}
+              nightShiftPrice={form.watch('night_shift_price') || 0}
+              fullDayPrice={form.watch('full_day_price') || 0}
+              weekendDayShiftPrice={form.watch('weekend_day_shift_price')}
+              weekendNightShiftPrice={form.watch('weekend_night_shift_price')}
+              weekendFullDayPrice={form.watch('weekend_full_day_price')}
+              holidayDayShiftPrice={form.watch('holiday_day_shift_price')}
+              holidayNightShiftPrice={form.watch('holiday_night_shift_price')}
+              holidayFullDayPrice={form.watch('holiday_full_day_price')}
+              dayShiftStartTime={form.watch('day_shift_start_time')}
+              dayShiftEndTime={form.watch('day_shift_end_time')}
+              nightShiftStartTime={form.watch('night_shift_start_time')}
+              nightShiftEndTime={form.watch('night_shift_end_time')}
+              onPricingModeChange={(mode) => form.setValue('pricing_mode', mode, { shouldValidate: true })}
+              onPriceChange={(field, value) => form.setValue(field as any, value, { shouldValidate: true })}
+              onTimeChange={(field, value) => form.setValue(field as any, value, { shouldValidate: true })}
+            />
 
             <div className="grid grid-cols-3 gap-4">
               <FormField
@@ -246,9 +412,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                 name="standard_adults_occupancy"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {language === 'vi' ? 'Số người lớn tiêu chuẩn' : 'Adults Occupancy'} *
-                    </FormLabel>
+                    <FormLabel>{t('roomTypes.standardAdultsOccupancy')} *</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -259,9 +423,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Số người lớn tiêu chuẩn không tính phụ thu'
-                        : 'Standard adults without extra charge'}
+                      {t('roomTypes.standardAdultsDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -273,9 +435,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                 name="standard_children_occupancy"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {language === 'vi' ? 'Số trẻ em tiêu chuẩn' : 'Child Occupancy'} *
-                    </FormLabel>
+                    <FormLabel>{t('roomTypes.standardChildrenOccupancy')} *</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -286,9 +446,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Số trẻ em tiêu chuẩn không tính phụ thu'
-                        : 'Standard children without extra charge'}
+                      {t('roomTypes.standardChildrenDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -333,9 +491,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi' 
-                        ? 'Số người lớn tối đa có thể ở trong phòng'
-                        : 'Maximum number of adults allowed in the room'}
+                      {t('roomTypes.maxAdultsDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -358,9 +514,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Số trẻ em tối đa có thể ở trong phòng'
-                        : 'Maximum number of children allowed in the room'}
+                      {t('roomTypes.maxChildrenDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -384,9 +538,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Phụ thu cho mỗi người lớn vượt quá số lượng tối thiểu'
-                        : 'Extra charge per adult exceeding minimum occupancy'}
+                      {t('roomTypes.extraAdultChargeDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -408,9 +560,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Phụ thu cho mỗi trẻ em'
-                        : 'Extra charge per child'}
+                      {t('roomTypes.extraChildChargeDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -424,9 +574,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                 name="extra_single_bed_charge"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {language === 'vi' ? 'Phụ thu giường đơn' : 'Single Bed Extra Charge'}
-                    </FormLabel>
+                    <FormLabel>{t('roomTypes.extraSingleBedCharge')}</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -437,9 +585,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Phụ thu khi thêm giường đơn cho khách bổ sung'
-                        : 'Extra charge for additional single bed for extra persons'}
+                      {t('roomTypes.extraSingleBedDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -451,9 +597,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                 name="extra_double_bed_charge"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {language === 'vi' ? 'Phụ thu giường đôi' : 'Double Bed Extra Charge'}
-                    </FormLabel>
+                    <FormLabel>{t('roomTypes.extraDoubleBedCharge')}</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -464,15 +608,57 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Phụ thu khi thêm giường đôi cho khách bổ sung'
-                        : 'Extra charge for additional double bed for extra persons'}
+                      {t('roomTypes.extraDoubleBedDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="cleaning_time_minutes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className={!cleaningTimeValidation.isValid ? 'text-red-500' : ''}>
+                    {t('roomTypes.cleaningTime')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input 
+                      type="number" 
+                      min="0" 
+                      max="240"
+                      {...field} 
+                      value={field.value || 30}
+                      onChange={(e) => field.onChange(parseInt(e.target.value) || 30)}
+                      placeholder="30"
+                      className={!cleaningTimeValidation.isValid ? 'border-red-500 focus:ring-red-500' : ''}
+                    />
+                  </FormControl>
+                  <FormDescription className={!cleaningTimeValidation.isValid ? 'text-red-500' : ''}>
+                    {!cleaningTimeValidation.isValid 
+                      ? cleaningTimeValidation.message 
+                      : t('roomTypes.cleaningTimeDescription')}
+                  </FormDescription>
+                  {form.watch('pricing_mode') === 'shift' && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {t('roomTypes.shiftGaps', {
+                        dayToNight: calculateShiftGap(
+                          form.watch('day_shift_end_time') || '16:30',
+                          form.watch('night_shift_start_time') || '17:30'
+                        ),
+                        nightToDay: calculateShiftGap(
+                          form.watch('night_shift_end_time') || '08:30',
+                          form.watch('day_shift_start_time') || '09:00'
+                        )
+                      })}
+                    </div>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
@@ -511,9 +697,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Số đêm tối thiểu phải ở'
-                        : 'Minimum nights required for booking'}
+                      {t('roomTypes.minStayNightsDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -536,9 +720,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                       />
                     </FormControl>
                     <FormDescription>
-                      {language === 'vi'
-                        ? 'Số đêm tối đa có thể ở'
-                        : 'Maximum nights allowed for booking'}
+                      {t('roomTypes.maxStayNightsDescription')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -573,9 +755,7 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
                     <div className="space-y-0.5">
                       <FormLabel>{t('common.active')}</FormLabel>
                       <FormDescription>
-                        {language === 'vi'
-                          ? 'Loại phòng sẽ hiển thị và có thể đặt khi được kích hoạt'
-                          : 'Room type will be visible and bookable when active'}
+                        {t('roomTypes.activeDescription')}
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -593,7 +773,16 @@ export const RoomTypeForm: React.FC<RoomTypeFormProps> = ({
               <Button type="button" variant="outline" onClick={onClose}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" disabled={loading}>
+              <Button 
+                type="submit" 
+                disabled={loading}
+                onClick={() => {
+                  console.log('Save button clicked');
+                  console.log('Form state:', form.formState);
+                  console.log('Form errors:', form.formState.errors);
+                  console.log('Form isValid:', form.formState.isValid);
+                }}
+              >
                 {loading ? t('common.loading') : roomType ? t('common.save') : t('common.add')}
               </Button>
             </DialogFooter>

@@ -118,8 +118,8 @@ async def get_allocation(
     
     result = db.table("room_allocations").select("""
         *, 
-        rooms(room_number, floor, features),
-        bookings(booking_code, check_in_date, check_out_date)
+        rooms!room_allocations_room_id_fkey(room_number, floor, features),
+        bookings!room_allocations_booking_id_fkey(booking_code, check_in_date, check_out_date)
     """).eq("id", str(allocation_id)).execute()
     
     if not result.data:
@@ -225,6 +225,7 @@ async def get_available_rooms(
     accessibility_required: bool = Query(False, description="Accessibility requirements"),
     features_required: Optional[str] = Query(None, description="Comma-separated features"),
     exclude_rooms: Optional[str] = Query(None, description="Comma-separated room UUIDs to exclude"),
+    booking_id: Optional[UUID] = Query(None, description="Include room assigned to this booking"),
     current_user: dict = Depends(get_current_user)
 ):
     """Get available rooms for specific dates and criteria"""
@@ -235,7 +236,8 @@ async def get_available_rooms(
         guest_count=guest_count,
         accessibility_required=accessibility_required,
         features_required=features_required.split(",") if features_required else [],
-        exclude_rooms=[UUID(r) for r in exclude_rooms.split(",")] if exclude_rooms else []
+        exclude_rooms=[UUID(r) for r in exclude_rooms.split(",")] if exclude_rooms else [],
+        booking_id=booking_id  # Pass booking_id to include its assigned room
     )
     
     service = RoomAllocationService(db)
@@ -653,14 +655,14 @@ async def get_allocation_dashboard(
         arrivals_result = db.table("bookings").select("""
             id, booking_code, check_in_date, check_in_time, room_id,
             customers(full_name),
-            rooms(room_number, room_types(name))
+            rooms!bookings_room_id_fkey(room_number, room_types(name))
         """).eq("check_in_date", today_str).eq("status", "confirmed").limit(10).execute()
         
         # 3. Get today's check-outs
         departures_result = db.table("bookings").select("""
             id, booking_code, check_out_date, check_out_time, room_id,
             customers(full_name),
-            rooms(room_number, room_types(name))
+            rooms!bookings_room_id_fkey(room_number, room_types(name))
         """).eq("check_out_date", today_str).in_("status", ["confirmed", "checked_in"]).limit(10).execute()
         
         # 4. Get currently occupied rooms (checked-in bookings)

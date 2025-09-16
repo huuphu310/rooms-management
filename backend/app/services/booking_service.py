@@ -56,7 +56,7 @@ class BookingService:
         return f"BK{year}{new_number:04d}"
 
     async def calculate_booking_totals(self, booking_data: dict) -> dict:
-        """Calculate all booking totals including seasonal rates"""
+        """Calculate all booking totals including seasonal rates and shift-based pricing"""
         check_in = booking_data.get('check_in_date')
         check_out = booking_data.get('check_out_date')
         
@@ -65,27 +65,49 @@ class BookingService:
         if isinstance(check_out, str):
             check_out = date.fromisoformat(check_out)
         
-        nights = (check_out - check_in).days
-        room_rate = Decimal(str(booking_data.get('room_rate', 0)))
+        # Get room type information for pricing mode
+        room_type_id = booking_data.get('room_type_id')
+        room_type_info = None
+        if room_type_id:
+            room_type_response = self.db.table("room_types").select("*").eq("id", str(room_type_id)).execute()
+            if room_type_response.data:
+                room_type_info = room_type_response.data[0]
         
-        # Check for seasonal rates
-        seasonal_rates = await self.pricing_service.get_seasonal_rates(
-            room_type_id=booking_data.get('room_type_id'),
-            is_active=True,
-            start_date=check_in,
-            end_date=check_out
-        )
+        # Determine pricing calculation method
+        shift_type = booking_data.get('shift_type', 'traditional')
+        pricing_mode = room_type_info.get('pricing_mode', 'traditional') if room_type_info else 'traditional'
         
-        # Apply highest priority seasonal rate if found
-        if seasonal_rates['data']:
-            seasonal_rate = seasonal_rates['data'][0]  # Already sorted by priority
-            if seasonal_rate.rate_multiplier:
-                room_rate *= seasonal_rate.rate_multiplier
-            elif seasonal_rate.fixed_rate:
-                room_rate = seasonal_rate.fixed_rate
+        # Calculate room charges based on pricing mode
+        if pricing_mode == 'shift' and shift_type != 'traditional':
+            # Shift-based pricing calculation
+            room_rate, total_room_charge, calculation_units = await self._calculate_shift_pricing(
+                booking_data, room_type_info, check_in, check_out
+            )
+        else:
+            # Traditional night-based pricing calculation
+            nights = (check_out - check_in).days
+            room_rate = Decimal(str(booking_data.get('room_rate', 0)))
+            
+            # Check for seasonal rates
+            seasonal_rates = await self.pricing_service.get_seasonal_rates(
+                room_type_id=room_type_id,
+                is_active=True,
+                start_date=check_in,
+                end_date=check_out
+            )
+            
+            # Apply highest priority seasonal rate if found
+            if seasonal_rates['data']:
+                seasonal_rate = seasonal_rates['data'][0]  # Already sorted by priority
+                if seasonal_rate.rate_multiplier:
+                    room_rate *= seasonal_rate.rate_multiplier
+                elif seasonal_rate.fixed_rate:
+                    room_rate = seasonal_rate.fixed_rate
+            
+            total_room_charge = room_rate * nights
+            calculation_units = nights
         
-        # Calculate charges
-        total_room_charge = room_rate * nights
+        # Calculate additional charges
         extra_person_charge = Decimal(str(booking_data.get('extra_person_charge', 0)))
         extra_bed_charge = Decimal(str(booking_data.get('extra_bed_charge', 0)))
         service_charges = Decimal(str(booking_data.get('service_charges', 0)))
@@ -104,7 +126,6 @@ class BookingService:
             discount_amount = Decimal('0')
         
         # Calculate tax - use provided tax_percentage or default to 10%
-        # If tax_percentage is explicitly 0, use 0
         if 'tax_percentage' in booking_data:
             tax_percentage = Decimal(str(booking_data['tax_percentage']))
         else:
@@ -121,8 +142,8 @@ class BookingService:
         else:
             deposit_required = (total_amount * Decimal('0.3')).quantize(Decimal('0.01'))
         
-        return {
-            'nights': nights,
+        # Return results with appropriate unit label
+        result = {
             'room_rate': float(room_rate),
             'total_room_charge': float(total_room_charge),
             'subtotal': float(subtotal),
@@ -131,10 +152,144 @@ class BookingService:
             'total_amount': float(total_amount),
             'deposit_required': float(deposit_required)
         }
+        
+        # Add appropriate calculation units
+        if pricing_mode == 'shift':
+            result['shifts'] = calculation_units
+            result['shift_type'] = shift_type
+            # Keep nights for compatibility but may be 0 for day shifts
+            result['nights'] = (check_out - check_in).days
+        else:
+            result['nights'] = calculation_units
+        
+        return result
+
+    async def _calculate_shift_pricing(self, booking_data: dict, room_type_info: dict, check_in: date, check_out: date) -> tuple:
+        """Calculate pricing for shift-based bookings"""
+        shift_type = booking_data.get('shift_type', 'day_shift')
+        total_shifts = booking_data.get('total_shifts', 1)
+        shift_date = booking_data.get('shift_date', check_in)
+        
+        # Convert shift_date to date object if it's a string
+        if isinstance(shift_date, str):
+            shift_date = date.fromisoformat(shift_date)
+        elif shift_date is None:
+            # Use check_in date if shift_date is not provided
+            shift_date = check_in if isinstance(check_in, date) else date.fromisoformat(check_in)
+        
+        # Determine if it's a weekend or holiday
+        is_weekend = shift_date.weekday() >= 5  # Saturday = 5, Sunday = 6
+        # TODO: Add holiday detection logic here
+        is_holiday = False
+        
+        # Get base shift rate from room type
+        if shift_type == 'day_shift':
+            if is_holiday and room_type_info.get('holiday_day_shift_price'):
+                base_rate = Decimal(str(room_type_info['holiday_day_shift_price']))
+            elif is_weekend and room_type_info.get('weekend_day_shift_price'):
+                base_rate = Decimal(str(room_type_info['weekend_day_shift_price']))
+            else:
+                base_rate = Decimal(str(room_type_info.get('day_shift_price', 0)))
+                
+        elif shift_type == 'night_shift':
+            if is_holiday and room_type_info.get('holiday_night_shift_price'):
+                base_rate = Decimal(str(room_type_info['holiday_night_shift_price']))
+            elif is_weekend and room_type_info.get('weekend_night_shift_price'):
+                base_rate = Decimal(str(room_type_info['weekend_night_shift_price']))
+            else:
+                base_rate = Decimal(str(room_type_info.get('night_shift_price', 0)))
+                
+        elif shift_type == 'full_day':
+            if is_holiday and room_type_info.get('holiday_full_day_price'):
+                base_rate = Decimal(str(room_type_info['holiday_full_day_price']))
+            elif is_weekend and room_type_info.get('weekend_full_day_price'):
+                base_rate = Decimal(str(room_type_info['weekend_full_day_price']))
+            else:
+                base_rate = Decimal(str(room_type_info.get('full_day_price', 0)))
+        else:
+            # Fallback to traditional pricing for 'traditional' shift type
+            base_rate = Decimal(str(room_type_info.get('base_price', 0)))
+        
+        # If no shift-specific rate is set, fall back to base price
+        if base_rate == 0:
+            base_rate = Decimal(str(room_type_info.get('base_price', 0)))
+        
+        # Apply seasonal rates if any
+        seasonal_rates = await self.pricing_service.get_seasonal_rates(
+            room_type_id=booking_data.get('room_type_id'),
+            is_active=True,
+            start_date=shift_date,
+            end_date=shift_date  # Single day for shift bookings
+        )
+        
+        if seasonal_rates['data']:
+            seasonal_rate = seasonal_rates['data'][0]
+            if seasonal_rate.rate_multiplier:
+                base_rate *= seasonal_rate.rate_multiplier
+            elif seasonal_rate.fixed_rate:
+                base_rate = seasonal_rate.fixed_rate
+        
+        # Calculate total charge
+        total_charge = base_rate * total_shifts
+        
+        return base_rate, total_charge, total_shifts
 
     async def create_booking(self, booking_data: BookingCreate, user_id: Optional[UUID] = None) -> Booking:
-        """Create a new booking with availability check"""
+        """Create a new booking with availability check and duplicate prevention"""
         try:
+            # Check for duplicate bookings first (idempotency check)
+            # First check if an idempotency key was provided
+            if booking_data.idempotency_key:
+                from datetime import datetime, timedelta
+                
+                # Check for bookings with the same idempotency key in the last 24 hours
+                recent_cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+                
+                idempotency_check = self.db.table("bookings").select("id, booking_code, created_at").eq(
+                    "internal_notes->>idempotency_key", booking_data.idempotency_key
+                ).gte(
+                    "created_at", recent_cutoff
+                ).execute()
+                
+                if idempotency_check.data and len(idempotency_check.data) > 0:
+                    # Return the existing booking instead of creating a new one
+                    logger.info(f"Idempotency key {booking_data.idempotency_key} found, returning existing booking")
+                    existing_booking_id = idempotency_check.data[0]['id']
+                    
+                    # Get the full booking details
+                    existing_booking = await self.get_booking(UUID(existing_booking_id))
+                    if existing_booking:
+                        return existing_booking
+            
+            # Check if there's a recent booking with same customer and dates
+            if booking_data.customer_id:
+                from datetime import datetime, timedelta
+                
+                # Check for bookings created in last 30 seconds with same details
+                recent_cutoff = (datetime.utcnow() - timedelta(seconds=30)).isoformat()
+                
+                duplicate_check = self.db.table("bookings").select("id, booking_code, created_at").eq(
+                    "customer_id", str(booking_data.customer_id)
+                ).eq(
+                    "check_in_date", str(booking_data.check_in_date)
+                ).eq(
+                    "check_out_date", str(booking_data.check_out_date)
+                ).eq(
+                    "room_type_id", str(booking_data.room_type_id)
+                ).gte(
+                    "created_at", recent_cutoff
+                ).execute()
+                
+                if duplicate_check.data and len(duplicate_check.data) > 0:
+                    # Return the existing booking instead of creating a new one
+                    logger.warning(f"Duplicate booking attempt detected for customer {booking_data.customer_id}")
+                    existing_booking_id = duplicate_check.data[0]['id']
+                    
+                    # Get the full booking details
+                    existing_booking = await self.get_booking(UUID(existing_booking_id))
+                    if existing_booking:
+                        return existing_booking
+            
             # Check availability first
             availability = await self.check_availability(BookingAvailabilityRequest(
                 check_in_date=booking_data.check_in_date,
@@ -286,7 +441,7 @@ class BookingService:
                 'discounts': float(totals.get('discount_amount', 0)),
                 'taxes': float(totals.get('tax_amount', 0)),
                 'total_amount': totals['total_amount'],
-                'deposit_amount': float(booking_data.deposit_required) if booking_data.deposit_required else totals['deposit_required'],
+                'deposit_amount': float(booking_data.deposit_amount) if booking_data.deposit_amount else float(booking_data.deposit_required) if booking_data.deposit_required else totals['deposit_required'],
                 'paid_amount': deposit_paid,
                 'status': BookingStatus.PENDING.value,
                 'source': booking_data.source.value if hasattr(booking_data.source, 'value') else booking_data.source,
@@ -294,9 +449,12 @@ class BookingService:
                 'commission_rate': float(booking_data.commission_rate) if booking_data.commission_rate else 0.0
             }
             
-            # Add internal notes (no longer need to store room_type_id here)
-            if booking_data.internal_notes:
-                booking_dict['internal_notes'] = booking_data.internal_notes
+            # Add internal notes and idempotency key
+            internal_notes = booking_data.internal_notes if booking_data.internal_notes else {}
+            if booking_data.idempotency_key:
+                internal_notes['idempotency_key'] = booking_data.idempotency_key
+            if internal_notes:
+                booking_dict['internal_notes'] = internal_notes
             
             if user_id:
                 booking_dict['created_by'] = str(user_id)
@@ -314,14 +472,34 @@ class BookingService:
             folio_service = FolioService(self.db)
             folio = await folio_service.create_folio_for_booking(UUID(booking_id), user_id)
             
-            # If deposit is paid, process it
-            if deposit_paid > 0:
-                await folio_service.process_deposit(
+            # Always create deposit invoice if deposit is required
+            # Use deposit_amount if admin entered it, otherwise use deposit_required
+            deposit_invoice_amount = None
+            if booking_data.deposit_amount and booking_data.deposit_amount > 0:
+                # Admin manually entered a deposit amount - use it
+                deposit_invoice_amount = float(booking_data.deposit_amount)
+            elif booking_data.deposit_required and booking_data.deposit_required > 0:
+                # Use the suggested deposit amount
+                deposit_invoice_amount = float(booking_data.deposit_required)
+            else:
+                deposit_invoice_amount = totals.get('deposit_required', 0)
+            
+            if deposit_invoice_amount and deposit_invoice_amount > 0:
+                # Create deposit invoice without payment - pass the correct amount
+                await folio_service.create_deposit_invoice_only(
                     booking_id=UUID(booking_id),
-                    amount=Decimal(str(deposit_paid)),
-                    payment_method=booking_data.payment_method if hasattr(booking_data, 'payment_method') else 'cash',
+                    deposit_amount=deposit_invoice_amount,
                     user_id=user_id
                 )
+                
+                # Only process payment if deposit_paid > 0
+                if deposit_paid > 0:
+                    await folio_service.process_deposit(
+                        booking_id=UUID(booking_id),
+                        amount=Decimal(str(deposit_paid)),
+                        payment_method=booking_data.payment_method if hasattr(booking_data, 'payment_method') else 'cash',
+                        user_id=user_id
+                    )
             
             # Clear cache
             if self.cache:
@@ -348,6 +526,7 @@ class BookingService:
             result_data['discount_amount'] = totals.get('discount_amount', 0)
             result_data['discount_reason'] = booking_data.discount_reason if hasattr(booking_data, 'discount_reason') else None
             result_data['deposit_required'] = float(booking_data.deposit_required) if booking_data.deposit_required else totals['deposit_required']
+            result_data['deposit_amount'] = float(booking_data.deposit_amount) if booking_data.deposit_amount else result_data['deposit_required']
             result_data['deposit_paid'] = deposit_paid
             result_data['purpose_of_visit'] = original_purpose_of_visit
             
@@ -433,6 +612,7 @@ class BookingService:
         booking_data.setdefault('extra_bed_charge', 0.0)
         booking_data.setdefault('service_charges', 0.0)
         booking_data.setdefault('deposit_required', 0.0)
+        booking_data.setdefault('deposit_amount', booking_data.get('deposit_required', 0.0))
         booking_data.setdefault('total_paid', 0.0)
         
         # Set default time values if None
@@ -579,9 +759,19 @@ class BookingService:
                 
                 logger.info(f"Released previously assigned room {previously_assigned_room_id}")
             
+            # Handle actual_check_in field - convert datetime to ISO string if needed
+            actual_check_in_value = check_in_data.actual_check_in
+            if actual_check_in_value:
+                # If it's a datetime object, convert to ISO string
+                if isinstance(actual_check_in_value, datetime):
+                    actual_check_in_value = actual_check_in_value.isoformat()
+            else:
+                # Default to current time as ISO string
+                actual_check_in_value = datetime.now().isoformat()
+            
             update_data = {
                 'status': BookingStatus.CHECKED_IN.value,
-                'actual_check_in': check_in_data.actual_check_in or datetime.now().isoformat(),
+                'actual_check_in': actual_check_in_value,
                 'room_id': str(check_in_room_id),
                 'early_check_in': check_in_data.early_check_in,
                 'updated_at': datetime.now().isoformat(),
@@ -603,7 +793,18 @@ class BookingService:
             
             logger.info(f"Set room {check_in_room_id} to occupied status")
             
-            response = self.db.table("bookings").update(update_data).eq("id", str(booking_id)).execute()
+            # Some deployments may not have the 'early_check_in' column yet (schema cache issues)
+            try:
+                response = self.db.table("bookings").update(update_data).eq("id", str(booking_id)).execute()
+            except Exception as schema_error:
+                # Retry without early_check_in if PostgREST schema cache complains
+                if "could not find the 'early_check_in' column" in str(schema_error).lower():
+                    safe_update = dict(update_data)
+                    safe_update.pop('early_check_in', None)
+                    response = self.db.table("bookings").update(safe_update).eq("id", str(booking_id)).execute()
+                    logger.warning("Retried check-in update without 'early_check_in' due to schema cache mismatch")
+                else:
+                    raise
             
             if not response.data:
                 raise NotFoundException(f"Booking {booking_id} not found")
@@ -710,11 +911,24 @@ class BookingService:
             total_paid = Decimal(str(booking.total_paid)) + Decimal(str(check_out_data.payment_amount))
             payment_status = PaymentStatus.FULLY_PAID if total_paid >= Decimal(str(invoice['total_amount'])) else PaymentStatus.PARTIALLY_PAID
             
+            # Handle actual_check_out field - convert datetime to ISO string if needed
+            actual_check_out_value = check_out_data.actual_check_out
+            if actual_check_out_value:
+                # If it's a datetime object, convert to ISO string
+                if isinstance(actual_check_out_value, datetime):
+                    actual_check_out_value = actual_check_out_value.isoformat()
+                elif isinstance(actual_check_out_value, date) and not isinstance(actual_check_out_value, datetime):
+                    # If it's a date object (not datetime), convert to datetime first then to ISO string
+                    actual_check_out_value = datetime.combine(actual_check_out_value, datetime.min.time()).isoformat()
+            else:
+                # Default to current time as ISO string
+                actual_check_out_value = datetime.now().isoformat()
+            
             update_data = {
                 'status': BookingStatus.CHECKED_OUT.value,
                 'lifecycle_status': 'checked_out',
                 'payment_status': payment_status.value,
-                'actual_check_out': check_out_data.actual_check_out or datetime.now().isoformat(),
+                'actual_check_out': actual_check_out_value,
                 'checked_out_at': datetime.now().isoformat(),
                 'early_checkout': early_checkout,
                 'early_checkout_date': checkout_date.isoformat() if early_checkout else None,
@@ -732,16 +946,18 @@ class BookingService:
                 internal_notes['check_out_notes'] = check_out_data.notes
                 update_data['internal_notes'] = internal_notes
             
-            # Update room status back to available
+            # Update room status to cleaning (not available) after checkout
             if booking.room_id:
+                # Set room to cleaning status with cleaning start time
                 self.db.table("rooms").update({
-                    'status': 'available',
-                    'status_reason': 'Guest checked out',
+                    'status': 'cleaning',
+                    'status_reason': 'Guest checked out - cleaning in progress',
+                    'cleaning_started_at': datetime.now().isoformat(),
                     'current_booking_id': None,
                     'updated_at': datetime.now().isoformat()
                 }).eq("id", str(booking.room_id)).execute()
                 
-                logger.info(f"Set room {booking.room_id} to available status after check-out")
+                logger.info(f"Set room {booking.room_id} to cleaning status after check-out")
             
             # Record payment in payments table for compatibility
             if check_out_data.payment_amount > 0:

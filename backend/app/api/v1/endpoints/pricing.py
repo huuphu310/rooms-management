@@ -15,6 +15,7 @@ from app.api.deps import (
     get_supabase_service,
     get_supabase
 )
+from fastapi import HTTPException
 
 import logging
 
@@ -195,3 +196,80 @@ async def calculate_room_price(
     except Exception as e:
         logger.error(f"Error calculating price: {str(e)}")
         return {"error": str(e)}
+
+@router.post("/calculate")
+async def calculate_price(
+    request: dict,
+    db: AuthenticatedDbDep,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Calculate room price for a booking request"""
+    try:
+        from datetime import datetime
+        
+        # Extract request data
+        room_type_id = request.get("room_type_id")
+        check_in_date = request.get("check_in_date")
+        check_out_date = request.get("check_out_date")
+        adults = request.get("adults", 1)
+        children = request.get("children", 0)
+        
+        # Get room type information
+        room_type_result = db.table("room_types").select("*").eq("id", room_type_id).execute()
+        if not room_type_result.data:
+            raise HTTPException(status_code=404, detail="Room type not found")
+        
+        room_type = room_type_result.data[0]
+        
+        # Parse dates
+        check_in = datetime.strptime(check_in_date, "%Y-%m-%d").date()
+        check_out = datetime.strptime(check_out_date, "%Y-%m-%d").date()
+        nights = (check_out - check_in).days
+        
+        if nights <= 0:
+            raise HTTPException(status_code=400, detail="Check-out date must be after check-in date")
+        
+        # Calculate base price
+        base_price = float(room_type.get("base_price", 0))
+        
+        # Check for weekend/holiday pricing
+        is_weekend = check_in.weekday() >= 5  # Saturday = 5, Sunday = 6
+        
+        if is_weekend and room_type.get("weekend_price"):
+            room_rate = float(room_type["weekend_price"])
+        else:
+            room_rate = base_price
+        
+        # Calculate extra charges for additional guests
+        standard_occupancy = room_type.get("standard_occupancy", 2)
+        extra_adults = max(0, adults - standard_occupancy)
+        extra_adult_charge = float(room_type.get("extra_adult_charge", 0)) * extra_adults
+        extra_child_charge = float(room_type.get("extra_child_charge", 0)) * children
+        
+        # Calculate totals
+        subtotal = (room_rate * nights) + (extra_adult_charge * nights) + (extra_child_charge * nights)
+        tax_rate = 0.10  # 10% tax
+        tax_amount = subtotal * tax_rate
+        total_price = subtotal + tax_amount
+        
+        # Calculate deposit (30% of total)
+        deposit_amount = total_price * 0.30
+        
+        return {
+            "room_rate": room_rate,
+            "nights": nights,
+            "subtotal": subtotal,
+            "extra_adult_charge": extra_adult_charge * nights,
+            "extra_child_charge": extra_child_charge * nights,
+            "tax_rate": tax_rate,
+            "tax_amount": tax_amount,
+            "total_price": total_price,
+            "deposit_amount": deposit_amount,
+            "currency": "VND"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating price: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error calculating price: {str(e)}")

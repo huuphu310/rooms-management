@@ -354,8 +354,9 @@ class RoomAllocationService:
                 end_date = date(year, month + 1, 1) - timedelta(days=1)
 
             # Build query for rooms - include all active rooms regardless of status
+            # Fetch room status along with room data to avoid per-room queries later
             rooms_query = self.db.table("rooms").select("""
-                id, room_number, room_type_id, floor, status,
+                id, room_number, room_type_id, floor, status, status_reason,
                 room_types(name)
             """).eq("is_active", True)
 
@@ -368,10 +369,14 @@ class RoomAllocationService:
 
             rooms_result = rooms_query.execute()
             rooms = rooms_result.data
+            
+            # Create room status cache to avoid per-room database queries
+            room_status_cache = {room['id']: {'status': room.get('status'), 'status_reason': room.get('status_reason')} for room in rooms}
 
             # Get all allocations for the month
+            # Use explicit relationship hint for bookings join
             allocations_result = self.db.table("room_allocations").select("""
-                *, bookings(booking_code, customers(full_name))
+                *, bookings!room_allocations_booking_id_fkey(booking_code, customers(full_name))
             """).gte("check_in_date", start_date.isoformat()).lte(
                 "check_out_date", end_date.isoformat()
             ).in_("assignment_status", ["assigned", "locked"]).execute()
@@ -388,8 +393,10 @@ class RoomAllocationService:
             blocks = blocks_result.data
 
             # Get assigned bookings for the month (bookings with room_id assigned)
+            # Include shift_type and shift_date for shift-based bookings
             assigned_bookings_result = self.db.table("bookings").select("""
                 id, room_id, check_in_date, check_out_date, status, booking_code,
+                shift_type, shift_date,
                 customers(full_name)
             """).not_.is_("room_id", "null").gte(
                 "check_in_date", start_date.isoformat()
@@ -428,10 +435,24 @@ class RoomAllocationService:
                     # Find room in grid data
                     room_data = next(rg for rg in room_grid_data if rg['room_id'] == room['id'])
 
-                    # Check status for this date
-                    status = self._get_room_status_for_date(
-                        room['id'], current_date, allocations, blocks, assigned_bookings
+                    # Check status for this date - use shift-aware method
+                    # First check for shift-based bookings
+                    shift_status = self._get_room_status_for_date_with_shifts(
+                        room['id'], current_date, assigned_bookings
                     )
+                    
+                    # If no bookings found, check the traditional way for blocks and allocations
+                    if shift_status['status'] == RoomStatus.AVAILABLE:
+                        status = self._get_room_status_for_date_optimized(
+                            room['id'], current_date, allocations, blocks, assigned_bookings, room_status_cache
+                        )
+                        # Merge shift information if any
+                        if shift_status.get('day_shift_booking') or shift_status.get('night_shift_booking'):
+                            status['day_shift_booking'] = shift_status.get('day_shift_booking')
+                            status['night_shift_booking'] = shift_status.get('night_shift_booking')
+                            status['shift_type'] = shift_status.get('shift_type')
+                    else:
+                        status = shift_status
 
                     room_data['daily_status'].append(status)
 
@@ -446,6 +467,11 @@ class RoomAllocationService:
                         daily_occupancy['departing'] += 1
                     elif status['status'] == RoomStatus.PRE_ASSIGNED:
                         daily_occupancy['pre_assigned'] += 1
+                    elif status['status'] == RoomStatus.CLEANING:
+                        # Track cleaning rooms separately
+                        if 'cleaning' not in daily_occupancy:
+                            daily_occupancy['cleaning'] = 0
+                        daily_occupancy['cleaning'] += 1
                     else:
                         daily_occupancy['available'] += 1
 
@@ -460,13 +486,13 @@ class RoomAllocationService:
 
             # Calculate summary
             total_rooms = len(rooms)
-            avg_occupancy = sum(day['occupancy_rate'] for day in occupancy_stats) / len(occupancy_stats)
+            avg_occupancy = sum(day['occupancy_rate'] for day in occupancy_stats) / len(occupancy_stats) if occupancy_stats else 0
 
             summary = {
                 "total_rooms": total_rooms,
                 "days_in_month": len(occupancy_stats),
                 "average_occupancy_rate": round(avg_occupancy, 1),
-                "peak_occupancy": max(day['occupancy_rate'] for day in occupancy_stats),
+                "peak_occupancy": max(day['occupancy_rate'] for day in occupancy_stats) if occupancy_stats else 0,
                 "total_bookings": len(allocations),
                 "active_blocks": len(blocks)
             }
@@ -720,8 +746,229 @@ class RoomAllocationService:
             yield current
             current += timedelta(days=1)
 
+    def _get_room_status_for_date_with_shifts(self, room_id: str, check_date: date, assigned_bookings: List = None) -> Dict:
+        """Get room status for a specific date with shift-based bookings support"""
+        day_shift_booking = None
+        night_shift_booking = None
+        traditional_booking = None
+        
+        if assigned_bookings:
+            for booking in assigned_bookings:
+                if str(room_id) == str(booking['room_id']):
+                    # Check if it's a shift-based booking
+                    if booking.get('shift_type') and booking['shift_type'] != 'traditional':
+                        # For shift bookings, check if the shift_date matches
+                        if booking.get('shift_date'):
+                            shift_date = datetime.fromisoformat(booking['shift_date']).date()
+                            if shift_date == check_date:
+                                guest_name = None
+                                if booking.get('customers'):
+                                    guest_name = booking['customers']['full_name']
+                                
+                                booking_info = {
+                                    'booking_id': str(booking['id']),
+                                    'guest_name': guest_name,
+                                    'status': booking['status']
+                                }
+                                
+                                if booking['shift_type'] == 'day_shift':
+                                    day_shift_booking = booking_info
+                                elif booking['shift_type'] == 'night_shift':
+                                    night_shift_booking = booking_info
+                                elif booking['shift_type'] == 'full_day':
+                                    # Full day means both shifts
+                                    day_shift_booking = booking_info
+                                    night_shift_booking = booking_info
+                    else:
+                        # Traditional booking - check date range
+                        checkin_date = datetime.fromisoformat(booking['check_in_date']).date()
+                        checkout_date = datetime.fromisoformat(booking['check_out_date']).date()
+                        
+                        if checkin_date <= check_date < checkout_date:
+                            guest_name = None
+                            if booking.get('customers'):
+                                guest_name = booking['customers']['full_name']
+                            
+                            traditional_booking = {
+                                'booking_id': str(booking['id']),
+                                'guest_name': guest_name,
+                                'status': booking['status'],
+                                'is_arrival': check_date == checkin_date,
+                                'is_departure': check_date == checkout_date
+                            }
+        
+        # Build the status response
+        status_dict = {
+            "date": check_date.isoformat(),
+            "status": RoomStatus.AVAILABLE
+        }
+        
+        # If there's a traditional booking, it takes precedence for overall status
+        if traditional_booking:
+            if traditional_booking['status'] == 'checked_in':
+                status_dict['status'] = RoomStatus.OCCUPIED
+            elif traditional_booking['status'] == 'confirmed':
+                if traditional_booking.get('is_arrival'):
+                    status_dict['status'] = RoomStatus.ARRIVING
+                else:
+                    status_dict['status'] = RoomStatus.PRE_ASSIGNED
+            
+            status_dict['booking_id'] = traditional_booking['booking_id']
+            status_dict['guest_name'] = traditional_booking['guest_name']
+            status_dict['shift_type'] = 'traditional'
+        
+        # Add shift booking information
+        if day_shift_booking or night_shift_booking:
+            if day_shift_booking and night_shift_booking:
+                # Both shifts booked
+                status_dict['shift_type'] = 'full_day'
+                status_dict['status'] = RoomStatus.OCCUPIED
+            elif day_shift_booking:
+                status_dict['shift_type'] = 'day_shift'
+                if not traditional_booking:
+                    status_dict['status'] = RoomStatus.OCCUPIED
+            elif night_shift_booking:
+                status_dict['shift_type'] = 'night_shift'
+                if not traditional_booking:
+                    status_dict['status'] = RoomStatus.OCCUPIED
+            
+            status_dict['day_shift_booking'] = day_shift_booking
+            status_dict['night_shift_booking'] = night_shift_booking
+        
+        return status_dict
+
+    def _get_room_status_for_date_optimized(self, room_id: str, check_date: date, allocations: List, blocks: List, assigned_bookings: List = None, room_status_cache: Dict = None) -> Dict:
+        """Get room status for a specific date using cached room status"""
+        from datetime import timedelta
+        
+        # Use cached room status instead of database query
+        if room_status_cache and room_id in room_status_cache:
+            room_status = room_status_cache[room_id]
+            if room_status.get('status') == 'cleaning':
+                # Room is being cleaned
+                return {
+                    "date": check_date.isoformat(),
+                    "status": RoomStatus.CLEANING,
+                    "status_reason": room_status.get('status_reason', 'Room is being cleaned')
+                }
+        
+        # Check blocks first
+        for block in blocks:
+            if (room_id == block['room_id'] and
+                datetime.fromisoformat(block['start_date']).date() <= check_date <= 
+                datetime.fromisoformat(block['end_date']).date()):
+                return {
+                    "date": check_date.isoformat(),
+                    "status": RoomStatus.BLOCKED,
+                    "block_reason": block.get('block_reason', 'Blocked')
+                }
+
+        # Check assigned bookings (rooms assigned through booking system)
+        if assigned_bookings:
+            for booking in assigned_bookings:
+                if str(room_id) == str(booking['room_id']):
+                    checkin_date = datetime.fromisoformat(booking['check_in_date']).date()
+                    checkout_date = datetime.fromisoformat(booking['check_out_date']).date()
+                    
+                    # Check if this booking has been checked out and room should be cleaning
+                    if booking['status'] == 'checked_out' and check_date >= checkout_date:
+                        # After checkout, room should be in cleaning status
+                        # Check if room is still in cleaning period using cached status
+                        if room_status_cache and room_id in room_status_cache:
+                            room_status = room_status_cache[room_id]
+                            if room_status.get('status') == 'cleaning':
+                                return {
+                                    "date": check_date.isoformat(),
+                                    "status": RoomStatus.CLEANING,
+                                    "status_reason": room_status.get('status_reason', 'Room is being cleaned after checkout')
+                                }
+                        # If not in cache or not cleaning, room is available
+                        return {
+                            "date": check_date.isoformat(),
+                            "status": RoomStatus.AVAILABLE
+                        }
+                    
+                    if checkin_date <= check_date < checkout_date:
+                        guest_name = None
+                        if booking.get('customers'):
+                            guest_name = booking['customers']['full_name']
+                        
+                        # Determine status based on booking status and date
+                        if booking['status'] == 'checked_out':
+                            # If checked out but still within booking dates, show as cleaning
+                            # This handles early checkouts
+                            if room_status_cache and room_id in room_status_cache:
+                                room_status = room_status_cache[room_id]
+                                if room_status.get('status') == 'cleaning':
+                                    return {
+                                        "date": check_date.isoformat(),
+                                        "status": RoomStatus.CLEANING,
+                                        "status_reason": room_status.get('status_reason', 'Room is being cleaned after early checkout')
+                                    }
+                            # Otherwise show as available
+                            return {
+                                "date": check_date.isoformat(),
+                                "status": RoomStatus.AVAILABLE
+                            }
+                        elif booking['status'] == 'checked_in':
+                            status = RoomStatus.OCCUPIED
+                        elif booking['status'] == 'confirmed':
+                            if check_date == checkin_date:
+                                status = RoomStatus.ARRIVING
+                            else:
+                                status = RoomStatus.PRE_ASSIGNED  # Room is held/booked for future arrival
+                        else:
+                            status = RoomStatus.PRE_ASSIGNED
+                        
+                        return {
+                            "date": check_date.isoformat(),
+                            "status": status,
+                            "booking_id": booking['id'],
+                            "guest_name": guest_name,
+                            "is_arrival": check_date == checkin_date,
+                            "is_departure": check_date == checkout_date,
+                            "is_vip": booking.get('is_vip', False)
+                        }
+
+        # Check allocations
+        for allocation in allocations:
+            if room_id == allocation['room_id']:
+                checkin_date = datetime.fromisoformat(allocation['check_in_date']).date()
+                checkout_date = datetime.fromisoformat(allocation['check_out_date']).date()
+                
+                if checkin_date <= check_date < checkout_date:
+                    guest_name = None
+                    # Handle the renamed bookings field from the explicit relationship
+                    bookings_field = allocation.get('bookings!room_allocations_booking_id_fkey') or allocation.get('bookings')
+                    if bookings_field and bookings_field.get('customers'):
+                        guest_name = bookings_field['customers']['full_name']
+                    
+                    return {
+                        "date": check_date.isoformat(),
+                        "status": RoomStatus.OCCUPIED,
+                        "booking_id": allocation['booking_id'],
+                        "guest_name": guest_name,
+                        "is_arrival": check_date == checkin_date,
+                        "is_departure": check_date == checkout_date
+                    }
+
+        return {
+            "date": check_date.isoformat(),
+            "status": RoomStatus.AVAILABLE
+        }
+    
     def _get_room_status_for_date(self, room_id: str, check_date: date, allocations: List, blocks: List, assigned_bookings: List = None) -> Dict:
-        """Get room status for a specific date"""
+        """Get room status for a specific date (original method for non-grid endpoints)"""
+        # First, check the room's actual status in the database
+        room_result = self.db.table("rooms").select("status, status_reason").eq("id", room_id).execute()
+        if room_result.data and room_result.data[0].get('status') == 'cleaning':
+            # Room is being cleaned
+            return {
+                "date": check_date.isoformat(),
+                "status": RoomStatus.CLEANING,
+                "status_reason": room_result.data[0].get('status_reason', 'Room is being cleaned')
+            }
+        
         # Check blocks first
         for block in blocks:
             if (room_id == block['room_id'] and
@@ -774,8 +1021,10 @@ class RoomAllocationService:
                 
                 if checkin_date <= check_date < checkout_date:
                     guest_name = None
-                    if allocation.get('bookings') and allocation['bookings'].get('customers'):
-                        guest_name = allocation['bookings']['customers']['full_name']
+                    # Handle the renamed bookings field from the explicit relationship
+                    bookings_field = allocation.get('bookings!room_allocations_booking_id_fkey') or allocation.get('bookings')
+                    if bookings_field and bookings_field.get('customers'):
+                        guest_name = bookings_field['customers']['full_name']
                     
                     return {
                         "date": check_date.isoformat(),
@@ -964,7 +1213,33 @@ class RoomAllocationService:
     async def get_available_rooms(self, request: AvailableRoomsRequest) -> AvailableRoomsResponse:
         """Get available rooms for specific dates and criteria"""
         try:
-            # Build the base query for available rooms
+            # First, check if we need to include a specific booking's assigned room
+            assigned_room = None
+            if request.booking_id:
+                # Get the room currently assigned to this booking
+                booking_result = self.db.table("bookings").select("room_id").eq("id", str(request.booking_id)).execute()
+                if booking_result.data and booking_result.data[0].get('room_id'):
+                    assigned_room_id = booking_result.data[0]['room_id']
+                    # Get the assigned room details
+                    assigned_room_result = self.db.table("rooms").select("""
+                        id,
+                        room_number,
+                        room_type_id,
+                        floor,
+                        status,
+                        is_accessible,
+                        current_booking_id,
+                        room_types(
+                            id,
+                            name,
+                            base_price,
+                            max_occupancy
+                        )
+                    """).eq("id", assigned_room_id).execute()
+                    if assigned_room_result.data:
+                        assigned_room = assigned_room_result.data[0]
+            
+            # Build the query for available rooms
             query = self.db.table("rooms").select("""
                 id,
                 room_number,
@@ -972,13 +1247,17 @@ class RoomAllocationService:
                 floor,
                 status,
                 is_accessible,
+                current_booking_id,
                 room_types(
                     id,
                     name,
                     base_price,
                     max_occupancy
                 )
-            """).eq("status", "available")
+            """)
+            
+            # Only get available rooms (we'll add the assigned room separately)
+            query = query.eq("status", "available")
             
             # Filter by room type if specified
             if request.room_type_id:
@@ -995,9 +1274,15 @@ class RoomAllocationService:
                 room_ids_str = ",".join(room_ids)
                 query = query.filter("id", "not.in", f"({room_ids_str})")
             
-            # Execute query
+            # Execute query for available rooms
             result = query.execute()
             all_rooms = result.data
+            
+            # Add the assigned room if it exists and isn't already in the results
+            if assigned_room:
+                room_ids_in_results = {room['id'] for room in all_rooms}
+                if assigned_room['id'] not in room_ids_in_results:
+                    all_rooms.append(assigned_room)
             
             # Check availability for each room in the date range
             available_rooms = []
@@ -1008,22 +1293,24 @@ class RoomAllocationService:
                 
                 # Filter by guest capacity if specified - do this in memory since max_occupancy is in room_types
                 if request.guest_count and max_occupancy < request.guest_count:
-                    continue  # Skip rooms that can't accommodate the guest count
+                    # Skip rooms that can't accommodate the guest count
+                    # BUT always include the assigned room
+                    if not (assigned_room and room['id'] == assigned_room['id']):
+                        continue
                 
                 # Check if room has any allocations in the requested period
-                conflicts = await self._check_room_availability(
-                    UUID(room['id']),
-                    request.check_in_date,  # Already a date object from request
-                    request.check_out_date   # Already a date object from request
-                )
+                # Skip this check for the assigned room (it's already allocated to this booking)
+                if assigned_room and room['id'] == assigned_room['id']:
+                    # This is the assigned room, include it without checking conflicts
+                    conflicts = False
+                else:
+                    conflicts = await self._check_room_availability(
+                        UUID(room['id']),
+                        request.check_in_date,  # Already a date object from request
+                        request.check_out_date   # Already a date object from request
+                    )
                 
                 if not conflicts:
-                    # Skip features check since features column doesn't exist in database
-                    # if request.features_required:
-                    #     room_features = room.get('features', []) or []
-                    #     if not all(feature in room_features for feature in request.features_required):
-                    #         continue
-                    
                     available_rooms.append({
                         "room_id": room['id'],
                         "room_number": room['room_number'],

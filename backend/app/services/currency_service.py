@@ -19,6 +19,16 @@ class CurrencyService:
     def __init__(self, db, cache):
         self.db = db
         self.cache = cache
+    
+    def _convert_decimal_to_float(self, obj):
+        """Recursively convert Decimal objects to float in dictionaries"""
+        if isinstance(obj, dict):
+            return {k: self._convert_decimal_to_float(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_decimal_to_float(item) for item in obj]
+        elif isinstance(obj, Decimal):
+            return float(obj)
+        return obj
         
     async def get_currency_config(self) -> CurrencyConfig:
         """Get current currency configuration"""
@@ -94,6 +104,8 @@ class CurrencyService:
             
             if existing.id:
                 # Update existing
+                # Convert any Decimal values to float for JSON serialization
+                update_data = self._convert_decimal_to_float(update_data)
                 response = self.db.table("currency_config").update(update_data).eq("id", str(existing.id)).execute()
                 if not response.data:
                     raise BadRequestException("Failed to update currency configuration")
@@ -102,6 +114,8 @@ class CurrencyService:
                 # Create new
                 update_data['id'] = str(uuid4())
                 update_data['created_at'] = datetime.utcnow().isoformat()
+                # Convert any Decimal values to float for JSON serialization
+                update_data = self._convert_decimal_to_float(update_data)
                 response = self.db.table("currency_config").insert(update_data).execute()
                 config_data = response.data[0]
             
@@ -157,6 +171,8 @@ class CurrencyService:
             }
             
             if config.id:
+                # Convert any Decimal values to float for JSON serialization
+                update_data = self._convert_decimal_to_float(update_data)
                 response = self.db.table("currency_config").update(update_data).eq("id", str(config.id)).execute()
                 if not response.data:
                     raise BadRequestException("Failed to update exchange rate")
@@ -168,6 +184,8 @@ class CurrencyService:
                 update_data['auto_update'] = False
                 update_data['update_frequency'] = 'daily'
                 update_data['created_at'] = datetime.utcnow().isoformat()
+                # Convert any Decimal values to float for JSON serialization
+                update_data = self._convert_decimal_to_float(update_data)
                 response = self.db.table("currency_config").insert(update_data).execute()
                 result_data = response.data[0]
             

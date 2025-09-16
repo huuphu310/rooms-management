@@ -78,7 +78,7 @@ export default function BillingEnhanced() {
           <CardContent>
             <div className="text-2xl font-bold">{quickStats.totalInvoices}</div>
             <p className="text-xs text-muted-foreground">
-              {formatCurrency(quickStats.pendingPayments)} pending
+              {Math.floor(quickStats.pendingPayments / 1000000)}M VND pending
             </p>
           </CardContent>
         </Card>
